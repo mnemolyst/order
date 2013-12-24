@@ -11,7 +11,7 @@
 <body>
   <div id="content-wrapper">
     <div id="canvas-wrapper">
-      <canvas id="baseCanvas" class="canvas" width="800" height="800">No canvas</canvas>
+      <canvas id="baseCanvas" class="canvas" width="700" height="700">No canvas</canvas>
     </div>
   </div>
 </body>
