@@ -12,6 +12,7 @@ function crossProd(x, y) {
 
 function Scene2D(canvas) {
   this.matrix = new Matrix2D();
+  this.matrixGood = false;
   this.context = canvas.getContext('2d');
   this.sceneWidth = canvas.width;
   this.sceneHeight = canvas.height;
@@ -25,17 +26,18 @@ function Scene2D(canvas) {
   this.pointsAccel = [];
   this.pointsInvMass = [];
   this.numPoints = 0;
-  this.items = [];
-  this.numItems = 0;
+  this.polyItems = [];
+  this.numPolyItems = 0;
   this.constraints = [];
   this.numConstraints = 0;
   this.speed = 0.1;
   this.constrainOrder = [];
+  this.dragItem = null;
+  this.deleteDrag = false;
 
   this.addPoint = function(x, y) {
     this.points[this.points.length] = this.pointsLast[this.pointsLast.length] = x;
     this.points[this.points.length] = this.pointsLast[this.pointsLast.length] = y;
-
     this.pointsInvMass[this.pointsInvMass.length] = 1;
 
     return this.numPoints++;
@@ -46,14 +48,14 @@ function Scene2D(canvas) {
     return [this.points[idx2D], this.points[idx2D+1]];
   }
 
-  this.addItem = function(item) {
-    this.items[this.items.length] = item;
+  this.addPolyItem = function(item) {
+    this.polyItems[this.polyItems.length] = item;
 
-    return this.numItems++;
+    return this.numPolyItems++;
   }
 
   this.randomizeConstrainOrder = function() {
-    for (var i=0; i<this.items.length; i++) {
+    for (var i=0; i<this.polyItems.length; i++) {
       this.constrainOrder[i] = i;
     }
 
@@ -69,10 +71,13 @@ function Scene2D(canvas) {
     var halfWidth = this.sceneWidth*0.5;
     var halfHeight = this.sceneHeight*0.5;
 
-    this.matrix.identity();
-    this.matrix.translate(halfWidth-this.panX, halfHeight-this.panY);
-    this.matrix.scale(this.scale, this.scale);
-    //this.matrix.rotate(this.rotation);
+    if (!this.matrixGood) {
+      this.matrix.identity();
+      this.matrix.translate(halfWidth-this.panX, halfHeight-this.panY);
+      this.matrix.scale(this.scale, this.scale);
+      //this.matrix.rotate(this.rotation);
+      this.matrixGood = true;
+    }
 
     this.pointsTransformed = this.matrix.transformArray(this.points);
 
@@ -84,11 +89,15 @@ function Scene2D(canvas) {
       this.context.textBaseline = 'top';
       this.context.fillText('rotation: ' + this.rotation*180/Math.PI, 5, 5);
       this.context.fillText('framerate: ' + framerate, 5, 20);
+      this.context.fillText('polys: ' + this.numPolyItems, 5, 35);
     }
 
-    for (var i=0; i<this.numItems; i++) {
-      this.items[i].render(this);
+    for (var i=0; i<this.numPolyItems; i++) {
+      this.polyItems[i].render(this);
     }
+
+    if (this.dragItem != null)
+      this.dragItem.render(this);
 
     this.context.restore();
   }
@@ -126,11 +135,11 @@ function Scene2D(canvas) {
   }
 
   this.constrain = function() {
-    for (var num=0; num<1; num++) {
-      for (var i=0; i<this.numItems; i++) {
-        this.items[i].constrain();
-      }
+    for (var i=0; i<this.numPolyItems; i++) {
+      this.polyItems[i].constrain();
     }
+    if (this.dragItem != null)
+      this.dragItem.constrain();
   }
 
   this.clip = function() {
@@ -150,16 +159,24 @@ function Scene2D(canvas) {
   }
 
   this.collide = function() {
-    for (var i=0; i<this.numItems; i++) {
-      this.items[i].color = '#eeeeee';
+    for (var i=0; i<this.numPolyItems; i++) {
+      this.polyItems[i].color = '#eeeeee';
     }
-    for (var i=0; i<this.numItems; i++) {
-      for (var j=i+1; j<this.numItems; j++) {
-        if (this.items[i].collide(this.items[j])) {
-          //this.items[i].color = '#ee0000';
-          //this.items[j].color = '#ee0000';
-        }
+    for (var i=0; i<this.numPolyItems; i++) {
+      for (var j=i+1; j<this.numPolyItems; j++) {
+        this.polyItems[i].collidePoly(this.polyItems[j]);
+        //if (this.polyItems[i].collidePoly(this.polyItems[j])) {
+        //  this.polyItems[i].color = '#ee0000';
+        //  this.polyItems[j].color = '#ee0000';
+        //}
       }
+    }
+  }
+
+  this.safeActions = function() {
+    if (this.deleteDrag) {
+      this.dragItem = null;
+      this.deleteDrag = false;
     }
   }
 
@@ -174,6 +191,7 @@ function Scene2D(canvas) {
     this.collide();
     this.collide();
     this.clip();
+    this.safeActions();
   }
 }
 
@@ -185,6 +203,7 @@ function polyItem(scene, pIdx) {
     this.p2Didx[i] = 2 * this.pIdx[i];
   }
   this.sideLengths = [];
+  this.invSideLengths = [];
   this.restLengths = [];
   this.restLengthsSq = [];
   this.edgeVecIdx = [];
@@ -200,6 +219,7 @@ function polyItem(scene, pIdx) {
     // compute side lengths
     var v = [points[this.p2Didx[si]]-points[this.p2Didx[i]], points[this.p2Didx[si]+1]-points[this.p2Didx[i]+1]];
     this.sideLengths[i] = Math.sqrt(v[0]*v[0] + v[1]*v[1]);
+    this.invSideLengths[i] = 1.0 / this.sideLengths[i];
 
     // constraint length pairs
     this.edgeVecIdx[this.edgeVecIdx.length] = this.p2Didx[i];
@@ -211,8 +231,8 @@ function polyItem(scene, pIdx) {
     }
 
     // depth from each face
-    var norm = [(points[this.p2Didx[si]+1]-points[this.p2Didx[i]+1])/this.sideLengths[i], // right-hand unit normal of i-th side
-                (points[this.p2Didx[i]]-points[this.p2Didx[si]])/this.sideLengths[i]];
+    var norm = [(points[this.p2Didx[si]+1]-points[this.p2Didx[i]+1])*this.invSideLengths[i], // right-hand unit normal of i-th side
+                (points[this.p2Didx[i]]-points[this.p2Didx[si]])*this.invSideLengths[i]];
     this.normalDepths[i] = 0;
     for (var j=0; j<this.p2Didx.length; j++) {
       var proj = (points[this.p2Didx[j]]-points[this.p2Didx[i]])*norm[0] + (points[this.p2Didx[j]+1]-points[this.p2Didx[i]+1])*norm[1];
@@ -235,9 +255,9 @@ function polyItem(scene, pIdx) {
     context.beginPath();
     context.strokeStyle = this.color;
     for (var i=0; i<this.p2Didx.length; i++) {
-      context.lineTo(points[this.p2Didx[i]], this.scene.sceneHeight-points[this.p2Didx[i]+1]);
+      context.lineTo(points[this.p2Didx[i]], this.scene.sceneHeight - points[this.p2Didx[i]+1]);
     }
-    context.lineTo(points[this.p2Didx[0]], this.scene.sceneHeight-points[this.p2Didx[0]+1]); // close the polygon
+    context.lineTo(points[this.p2Didx[0]], this.scene.sceneHeight - points[this.p2Didx[0]+1]); // close the polygon
     context.stroke();
   }
 
@@ -259,7 +279,7 @@ function polyItem(scene, pIdx) {
     }
   }
 
-  this.collide = function(poly2) {
+  this.snapPoly = function(poly2) {
     var points = this.scene.points;
 
     var minOverlap = 1000;
@@ -271,8 +291,8 @@ function polyItem(scene, pIdx) {
     // First check this poly's sides for penetration against "that" poly's points
     for (var i=0; i<this.p2Didx.length; i++) {
       var j = (i+1<this.p2Didx.length)?i+1:0;
-      var norm = [(points[this.p2Didx[j]+1]-points[this.p2Didx[i]+1])/this.sideLengths[i], // unit normal of i-th side
-                  (points[this.p2Didx[i]]-points[this.p2Didx[j]])/this.sideLengths[i]];
+      var norm = [(points[this.p2Didx[j]+1]-points[this.p2Didx[i]+1])*this.invSideLengths[i], // unit normal of i-th side
+                  (points[this.p2Didx[i]]-points[this.p2Didx[j]])*this.invSideLengths[i]];
 
       var min12Proj = 0;
       var max12Proj = 0;
@@ -308,8 +328,8 @@ function polyItem(scene, pIdx) {
     // Then check "that" poly's sides
     for (var i=0; i<poly2.p2Didx.length; i++) {
       var j = (i+1<poly2.p2Didx.length)?i+1:0;
-      var norm = [(points[poly2.p2Didx[j]+1]-points[poly2.p2Didx[i]+1])/poly2.sideLengths[i], // unit normal of i-th side
-                  (points[poly2.p2Didx[i]]-points[poly2.p2Didx[j]])/poly2.sideLengths[i]];
+      var norm = [(points[poly2.p2Didx[j]+1]-points[poly2.p2Didx[i]+1])*poly2.invSideLengths[i], // unit normal of i-th side
+                  (points[poly2.p2Didx[i]]-points[poly2.p2Didx[j]])*poly2.invSideLengths[i]];
 
       var min21Proj = 0;
       var max21Proj = 0;
@@ -361,213 +381,174 @@ function polyItem(scene, pIdx) {
 
     return true;
   }
+
+  this.collidePoly = function(poly2) {
+    var points = this.scene.points;
+
+    var minOverlap = 1000;
+    var bestNorm = [];
+    var besti = -1;
+    var bestj = -1;
+    var bestp = -1;
+
+    // First check this poly's sides for penetration against "that" poly's points
+    for (var i=0; i<this.p2Didx.length; i++) {
+      var j = (i+1<this.p2Didx.length)?i+1:0;
+      var norm = [(points[this.p2Didx[j]+1]-points[this.p2Didx[i]+1])*this.invSideLengths[i], // unit normal of i-th side
+                  (points[this.p2Didx[i]]-points[this.p2Didx[j]])*this.invSideLengths[i]];
+
+      var min12Proj = 0;
+      var max12Proj = 0;
+      var min12Projp = -1;
+      for (var p=0; p<poly2.p2Didx.length; p++) {
+        var proj = (points[poly2.p2Didx[p]]-points[this.p2Didx[i]])*norm[0] + (points[poly2.p2Didx[p]+1]-points[this.p2Didx[i]+1])*norm[1];
+        if (proj<min12Proj) {
+          min12Proj = proj;
+          min12Projp = p;
+        }
+        max12Proj = (max12Proj<proj)?proj:max12Proj;
+      }
+
+      var minProj = (-this.normalDepths[i]<min12Proj)?-this.normalDepths[i]:min12Proj;
+      var maxProj = (max12Proj>0)?max12Proj:0;
+
+      if (min12Projp == -1)
+        return false;
+
+      var overlap = max12Proj - min12Proj + this.normalDepths[i] - maxProj + minProj;
+      if (overlap > 0) {
+        //alert(overlap);
+        if (overlap < minOverlap) {
+          minOverlap = overlap;
+          bestNorm = norm;
+          besti = this.p2Didx[i];
+          bestj = this.p2Didx[j];
+          bestp = poly2.p2Didx[min12Projp];
+        }
+      } else return false;
+    }
+
+    // Then check "that" poly's sides
+    for (var i=0; i<poly2.p2Didx.length; i++) {
+      var j = (i+1<poly2.p2Didx.length)?i+1:0;
+      var norm = [(points[poly2.p2Didx[j]+1]-points[poly2.p2Didx[i]+1])*poly2.invSideLengths[i], // unit normal of i-th side
+                  (points[poly2.p2Didx[i]]-points[poly2.p2Didx[j]])*poly2.invSideLengths[i]];
+
+      var min21Proj = 0;
+      var max21Proj = 0;
+      var min21Projp = -1;
+      for (var p=0; p<this.p2Didx.length; p++) {
+        var proj = (points[this.p2Didx[p]]-points[poly2.p2Didx[i]])*norm[0] + (points[this.p2Didx[p]+1]-points[poly2.p2Didx[i]+1])*norm[1];
+        if (proj<min21Proj) {
+          min21Proj = proj;
+          min21Projp = p;
+        }
+        max21Proj = (max21Proj<proj)?proj:max21Proj;
+      }
+
+      var minProj = (-poly2.normalDepths[i]<min21Proj)?-poly2.normalDepths[i]:min21Proj;
+      var maxProj = (max21Proj>0)?max21Proj:0;
+
+      if (min21Projp == -1)
+        return false;
+
+      var overlap = max21Proj - min21Proj + poly2.normalDepths[i] - maxProj + minProj;
+      if (overlap > 0) {
+        //alert(overlap);
+        if (overlap < minOverlap) {
+          minOverlap = overlap;
+          bestNorm = norm;
+          besti = poly2.p2Didx[i];
+          bestj = poly2.p2Didx[j];
+          bestp = this.p2Didx[min21Projp];
+        }
+      } else return false;
+    }
+
+    // Update points
+    if (Math.abs(points[bestj] - points[besti]) > Math.abs(points[bestj+1] - points[besti+1]))
+      var ijHitF = Math.abs(points[bestp]-points[besti]) / Math.abs(points[bestj]-points[besti]);
+    else
+      var ijHitF = Math.abs(points[bestp+1]-points[besti+1]) / Math.abs(points[bestj+1]-points[besti+1]);
+    var l = 1.0/(ijHitF*ijHitF + (1-ijHitF)*(1-ijHitF));
+    var iHitP = (1-ijHitF)*l;
+    var jHitP = ijHitF*l;
+    var push = [bestNorm[0]*minOverlap*0.5, bestNorm[1]*minOverlap*0.5];
+    //alert (bestNorm[0] + ' ' + bestNorm[1]);
+    points[besti]   -= push[0]*iHitP;
+    points[besti+1] -= push[1]*iHitP;
+    points[bestj]   -= push[0]*jHitP;
+    points[bestj+1] -= push[1]*jHitP;
+    points[bestp]   += push[0];
+    points[bestp+1] += push[1];
+
+    return true;
+  }
+
+  this.pointIntersects = function(point) {
+    var points = this.scene.points;
+
+    for (var i=0; i<this.p2Didx.length; i++) {
+      var j = (i+1<this.p2Didx.length)?i+1:0;
+      var norm = [(points[this.p2Didx[j]+1]-points[this.p2Didx[i]+1])*this.invSideLengths[i], // unit normal of i-th side
+                  (points[this.p2Didx[i]]-points[this.p2Didx[j]])*this.invSideLengths[i]];
+      var proj = (point[0]-points[this.p2Didx[i]])*norm[0] + (point[1]-points[this.p2Didx[i]+1])*norm[1];
+      if (proj > 0)
+        return false;
+    }
+
+    return true;
+  }
 }
 
-function quadItem(scene, p1idx, p2idx, p3idx, p4idx) {
+function dragItem(scene, dragP, pIdx) {
   this.scene = scene;
-  this.p1idx = p1idx;
-  this.p2idx = p2idx;
-  this.p3idx = p3idx;
-  this.p4idx = p4idx;
-  this.pIdx = [
-    p1idx,
-    p2idx,
-    p3idx,
-    p4idx,];
-  this.p2Didx = [
-    p1idx*2,
-    p2idx*2,
-    p3idx*2,
-    p4idx*2,]; // p1 repeated for circularity
+  this.dragP = dragP;
+  this.pIdx = pIdx;
+  this.p2Didx = [];
+  for (var i=0; i<this.pIdx.length; i++) {
+    this.p2Didx[i] = 2 * this.pIdx[i];
+  }
+  this.restLengths = [];
+  this.restLengthsSq = [];
   this.color = '#eeeeee';
 
   // INIT
-  // compute rest lengths etc
-  var p = [
-    scene.getPoint(p1idx),
-    scene.getPoint(p2idx),
-    scene.getPoint(p3idx),
-    scene.getPoint(p4idx),];
-  this.edgeVecIdx = [
-    0,1,
-    1,2,
-    2,3,
-    3,0,
-    0,2,
-    1,3,];
-  this.restLengths = [];
-  this.restLengthsSq = [];
-  for (var i=0; i<6; i++) {
-    var rad = (p[this.edgeVecIdx[i*2+1]][0]-p[this.edgeVecIdx[i*2]][0])*(p[this.edgeVecIdx[i*2+1]][0]-p[this.edgeVecIdx[i*2]][0]);
-        rad +=(p[this.edgeVecIdx[i*2+1]][1]-p[this.edgeVecIdx[i*2]][1])*(p[this.edgeVecIdx[i*2+1]][1]-p[this.edgeVecIdx[i*2]][1]);
-    this.restLengths[i] = Math.sqrt(rad);
+  var points = this.scene.points;
+  // constraint rest lengths
+  for (var i=0; i<this.p2Didx.length; i++) {
+    var v = [points[this.p2Didx[i]]-this.dragP[0], points[this.p2Didx[i]+1]-this.dragP[1]];
+    this.restLengths[i] = Math.sqrt(v[0]*v[0] + v[1]*v[1]);
     this.restLengthsSq[i] = this.restLengths[i]*this.restLengths[i];
   }
-  this.overlappedSides = [false, false, false, false];
 
   // METHODS
   this.render = function() {
     var points = this.scene.pointsTransformed;
     var context = this.scene.context;
-    var path = [0,1,2,3,0];
+    var dragPointTransformed = this.scene.matrix.transformArray(this.dragP);
 
     context.beginPath();
     context.strokeStyle = this.color;
-    for (var i=0; i<5; i++) {
-      //alert(points[this.p2Didx[path[i]]] + ' ' + points[this.p2Didx[path[i]]+1]);
-      context.lineTo(points[this.p2Didx[path[i]]], this.scene.sceneHeight-points[this.p2Didx[path[i]]+1]);
+    for (var i=0; i<this.p2Didx.length; i++) {
+      context.moveTo(dragPointTransformed[0], this.scene.sceneHeight - dragPointTransformed[1]);
+      context.lineTo(points[this.p2Didx[i]], this.scene.sceneHeight - points[this.p2Didx[i]+1]);
     }
     context.stroke();
   }
 
   this.constrain = function() {
     var points = this.scene.points;
-    for (var i=0; i<6; i++) {
-      var vecH = i*2;
-      var delta = [points[this.p2Didx[this.edgeVecIdx[vecH+1]]]-points[this.p2Didx[this.edgeVecIdx[vecH]]],
-                   points[this.p2Didx[this.edgeVecIdx[vecH+1]]+1]-points[this.p2Didx[this.edgeVecIdx[vecH]]+1]];
+    for (var i=0; i<this.p2Didx.length; i++) {
+      var delta = [points[this.p2Didx[i]]-this.dragP[0],
+                   points[this.p2Didx[i]+1]-this.dragP[1]]
       var delSq = delta[0]*delta[0] + delta[1]*delta[1];
-      var im1 = this.scene.pointsInvMass[this.pIdx[this.edgeVecIdx[vecH]]];
-      var im2 = this.scene.pointsInvMass[this.pIdx[this.edgeVecIdx[vecH+1]]];
-      var diff = (delSq-this.restLengthsSq[i])/((delSq+this.restLengthsSq[i])*(im1+im2)*2);
+      var diff = (delSq-this.restLengthsSq[i])/(delSq+this.restLengthsSq[i]);
       for (var j=0; j<2; j++) {
         var del = diff*delta[j];
-        points[this.p2Didx[this.edgeVecIdx[vecH]]+j]   += del*im1;
-        points[this.p2Didx[this.edgeVecIdx[vecH+1]]+j] -= del*im2;
+        points[this.p2Didx[i]+j] -= del;
       }
     }
-  }
-
-  this.collide = function(quad2) {
-    var points = this.scene.points;
-    var thisCenter = [points[this.p2Didx[0]]+points[this.p2Didx[1]]+points[this.p2Didx[2]]+points[this.p2Didx[3]],
-                      points[this.p2Didx[0]+1]+points[this.p2Didx[1]+1]+points[this.p2Didx[2]+1]+points[this.p2Didx[3]+1]];
-    var thatCenter = [(points[quad2.p2Didx[0]]+points[quad2.p2Didx[1]]+points[quad2.p2Didx[2]]+points[quad2.p2Didx[3]])/4.0,
-                      (points[quad2.p2Didx[0]+1]+points[quad2.p2Didx[1]+1]+points[quad2.p2Didx[2]+1]+points[quad2.p2Didx[3]+1])/4.0];
-
-    var maxNeg1Proj = -1000;
-    var maxNeg2Proj = -1000;
-    var maxNeg1Projm = 0;
-    var maxNeg2Projm = 0;
-    var maxNeg1ProjNorml = [];
-    var maxNeg2ProjNorml = [];
-    var maxNeg1Proji = -1;
-    var maxNeg1Projj = -1;
-    var maxNeg1Projm = -1;
-    var maxNeg2Proji = -1;
-    var maxNeg2Projj = -1;
-    var maxNeg2Projm = -1;
-    var overlaps = true;
-
-    // First check this quad's sides for penetration against "that" quad's points
-    for (var i=0; i<4; i++) {
-      var j = i>2?i-3:i+1; // wrap around
-      var k = i>1?i-2:i+2;
-      var l = i>0?i-1:i+3;
-      var norm = [(points[this.p2Didx[j]+1]-points[this.p2Didx[i]+1])/this.restLengths[i], // unit normal of i-th side
-                   (points[this.p2Didx[i]]-points[this.p2Didx[j]])/this.restLengths[i]];
-
-      // which of this quad's points is furthest "left"?
-      var proj1a = (points[this.p2Didx[k]]-points[this.p2Didx[i]])*norm[0] + (points[this.p2Didx[k]+1]-points[this.p2Didx[i]+1])*norm[1];
-      var proj1b = (points[this.p2Didx[l]]-points[this.p2Didx[i]])*norm[0] + (points[this.p2Didx[l]+1]-points[this.p2Didx[i]+1])*norm[1];
-      var min1Proj = (proj1a<proj1b)?proj1a:proj1b;
-
-      var min2Proj = 0;
-      var max2Proj = 0;
-      for (var m=0; m<4; m++) {
-        var proj = (points[quad2.p2Didx[m]]-points[this.p2Didx[i]])*norm[0] + (points[quad2.p2Didx[m]+1]-points[this.p2Didx[i]+1])*norm[1];
-        min2Proj = (proj<min2Proj)?proj:min2Proj;
-        max2Proj = (max2Proj<proj)?proj:max2Proj;
-
-        if (min2Proj < 0 && min2Proj > maxNeg2Proj) {
-          maxNeg2Proj = min2Proj;
-          maxNeg2Projm = m;
-          maxNeg2ProjNorml = norm;
-          maxNeg2Proji = i;
-          maxNeg2Projj = j;
-        }
-      }
-
-      var minProj = (min1Proj<min2Proj)?min1Proj:min2Proj;
-      var maxProj = (max2Proj>0)?max2Proj:0;
-
-      var overlaps = overlaps && ((max2Proj - min2Proj - min1Proj) > (maxProj - minProj));
-
-      if (!overlaps)
-        return false;
-    }
-
-    // Then check "that" quad's sides
-    for (var i=0; i<4; i++) {
-      var j = i>2?i-3:i+1; // wrap around
-      var k = i>1?i-2:i+2;
-      var l = i>0?i-1:i+3;
-      var norm = [(points[quad2.p2Didx[j]+1]-points[quad2.p2Didx[i]+1])/quad2.restLengths[i], // unit normal of i-th side
-                   (points[quad2.p2Didx[i]]-points[quad2.p2Didx[j]])/quad2.restLengths[i]];
-
-      var proj2a = (points[quad2.p2Didx[k]]-points[quad2.p2Didx[i]])*norm[0] + (points[quad2.p2Didx[k]+1]-points[quad2.p2Didx[i]+1])*norm[1];
-      var proj2b = (points[quad2.p2Didx[l]]-points[quad2.p2Didx[i]])*norm[0] + (points[quad2.p2Didx[l]+1]-points[quad2.p2Didx[i]+1])*norm[1];
-      var min2Proj = (proj2a<proj2b)?proj2a:proj2b;
-
-      var min1Proj = 0;
-      var max1Proj = 0;
-      for (var m=0; m<4; m++) {
-        var proj = (points[this.p2Didx[m]]-points[quad2.p2Didx[i]])*norm[0] + (points[this.p2Didx[m]+1]-points[quad2.p2Didx[i]+1])*norm[1];
-        min1Proj = (proj<min1Proj)?proj:min1Proj;
-        max1Proj = (max1Proj<proj)?proj:max1Proj;
-
-        if (min1Proj < 0 && min1Proj > maxNeg1Proj) {
-          maxNeg1Proj = min1Proj;
-          maxNeg1Projm = m;
-          maxNeg1ProjNorml = norm;
-          maxNeg1Proji = i;
-          maxNeg1Projj = j;
-        }
-      }
-
-      var minProj = (min1Proj<min2Proj)?min1Proj:min2Proj;
-      var maxProj = (max1Proj>0)?max1Proj:0;
-
-      var overlaps = overlaps && ((max1Proj - min1Proj - min2Proj) > (maxProj - minProj));
-
-      if (!overlaps)
-        return false;
-    }
-
-    // Update points
-    if (maxNeg1Proj > maxNeg2Proj) {    // a point on this quad hit a side on that quad
-      if (Math.abs(points[quad2.p2Didx[maxNeg1Projj]] - points[quad2.p2Didx[maxNeg1Proji]]) > Math.abs(points[quad2.p2Didx[maxNeg1Projj]+1] - points[quad2.p2Didx[maxNeg1Proji]+1]))
-        var ijHitF = Math.abs(points[this.p2Didx[maxNeg1Projm]]-points[quad2.p2Didx[maxNeg1Proji]]) / Math.abs(points[quad2.p2Didx[maxNeg1Projj]]-points[quad2.p2Didx[maxNeg1Proji]]);
-      else
-        var ijHitF = Math.abs(points[this.p2Didx[maxNeg1Projm]+1]-points[quad2.p2Didx[maxNeg1Proji]+1]) / Math.abs(points[quad2.p2Didx[maxNeg1Projj]+1]-points[quad2.p2Didx[maxNeg1Proji]+1]);
-      var l = 1.0/(ijHitF*ijHitF + (1-ijHitF)*(1-ijHitF));
-      var iHitP = (1-ijHitF)*l;
-      var jHitP = ijHitF*l;
-      var push = [maxNeg1ProjNorml[0]*maxNeg1Proj*0.5, maxNeg1ProjNorml[1]*maxNeg1Proj*0.5];
-      points[quad2.p2Didx[maxNeg1Proji]]   += push[0]*iHitP;
-      points[quad2.p2Didx[maxNeg1Proji]+1] += push[1]*iHitP;
-      points[quad2.p2Didx[maxNeg1Projj]]   += push[0]*jHitP;
-      points[quad2.p2Didx[maxNeg1Projj]+1] += push[1]*jHitP;
-      points[this.p2Didx[maxNeg1Projm]]    -= push[0];
-      points[this.p2Didx[maxNeg1Projm]+1]  -= push[1];
-    } else {                            // a _side_ on this quad hit a _point_ on that quad
-      if (Math.abs(points[this.p2Didx[maxNeg2Projj]] - points[this.p2Didx[maxNeg2Proji]]) > Math.abs(points[this.p2Didx[maxNeg2Projj]+1]-points[this.p2Didx[maxNeg2Proji]+1]))
-        var ijHitF = Math.abs(points[quad2.p2Didx[maxNeg2Projm]]-points[this.p2Didx[maxNeg2Proji]]) / Math.abs(points[this.p2Didx[maxNeg2Projj]]-points[this.p2Didx[maxNeg2Proji]]);
-      else
-        var ijHitF = Math.abs(points[quad2.p2Didx[maxNeg2Projm]+1]-points[this.p2Didx[maxNeg2Proji]+1]) / Math.abs(points[this.p2Didx[maxNeg2Projj]+1]-points[this.p2Didx[maxNeg2Proji]+1]);
-      var l = 1.0/(ijHitF*ijHitF + (1-ijHitF)*(1-ijHitF));
-      var iHitP = (1-ijHitF)*l;
-      var jHitP = ijHitF*l;
-      var push = [maxNeg2ProjNorml[0]*maxNeg2Proj*0.5, maxNeg2ProjNorml[1]*maxNeg2Proj*0.5];
-      points[this.p2Didx[maxNeg2Proji]]    += push[0]*iHitP;
-      points[this.p2Didx[maxNeg2Proji]+1]  += push[1]*iHitP;
-      points[this.p2Didx[maxNeg2Projj]]    += push[0]*jHitP;
-      points[this.p2Didx[maxNeg2Projj]+1]  += push[1]*jHitP;
-      points[quad2.p2Didx[maxNeg2Projm]]   -= push[0];
-      points[quad2.p2Didx[maxNeg2Projm]+1] -= push[1];
-    }
-
-    return true;
   }
 }
 
@@ -806,6 +787,7 @@ function linDiffPairItem(scene, p1idx, p2idx, p3idx, p4idx, maxDiff) {
 
 jQuery(document).ready(function($) {
   var canvas = $('#baseCanvas');
+  var offset = canvas.offset();
   var scene = new Scene2D(canvas[0]);
   var state = 'none';
   var i;
@@ -826,7 +808,7 @@ jQuery(document).ready(function($) {
     for (var i=0; i<n; i++) {
       pIdx[i] = scene.addPoint(x+r*Math.cos(i*2*Math.PI/n), y+r*Math.sin(i*2*Math.PI/n));
     }
-    scene.addItem(new polyItem(scene, pIdx));
+    scene.addPolyItem(new polyItem(scene, pIdx));
     for (var i=0; i<n; i++) {
       scene.pointsLast[pIdx[i]*2] = lastx+r*Math.cos(i*2*Math.PI/n);
       scene.pointsLast[pIdx[i]*2+1] = lasty+r*Math.sin(i*2*Math.PI/n);
@@ -839,27 +821,19 @@ jQuery(document).ready(function($) {
   //  points[p] = scene.addPoint(point[0], point[1]);
   //}
 
-  //for (var item in quadItemData) {
-  //  var pList = quadItemData[item]['points'];
-  //  scene.addItem(new quadItem(scene, points[pList[0]], points[pList[1]], points[pList[2]], points[pList[3]]));
-  //  scene.pointsLast[points[pList[0]]*2] -= quadItemData[item]['v'][0]  ;// * (0.5+Math.random());
-  //  scene.pointsLast[points[pList[0]]*2+1] -= quadItemData[item]['v'][1];// * (0.5+Math.random());
-  //  scene.pointsLast[points[pList[1]]*2] -= quadItemData[item]['v'][0]  ;// * (0.5+Math.random());
-  //  scene.pointsLast[points[pList[1]]*2+1] -= quadItemData[item]['v'][1];// * (0.5+Math.random());
-  //  scene.pointsLast[points[pList[2]]*2] -= quadItemData[item]['v'][0]  ;// * (0.5+Math.random());
-  //  scene.pointsLast[points[pList[2]]*2+1] -= quadItemData[item]['v'][1];// * (0.5+Math.random());
-  //  scene.pointsLast[points[pList[3]]*2] -= quadItemData[item]['v'][0]  ;// * (0.5+Math.random());
-  //  scene.pointsLast[points[pList[3]]*2+1] -= quadItemData[item]['v'][1];// * (0.5+Math.random());
+  //for (var item in polyItemData) {
+  //  var pList = polyItemData[item]['points'];
+  //  scene.addPolyItem(new polyItem(scene, [points[pList[0]], points[pList[1]], points[pList[2]], points[pList[3]]]));
   //}
 
   //for (var item in linSumPairItemData) {
   //  var data = linSumPairItemData[item];
-  //  scene.addItem(new linSumPairItem(scene, points[data[0]], points[data[1]], points[data[2]], points[data[3]], data[4], data[5]));
+  //  scene.addPolyItem(new linSumPairItem(scene, points[data[0]], points[data[1]], points[data[2]], points[data[3]], data[4], data[5]));
   //}
 
   //for (var item in linDiffPairItemData) {
   //  var data = linDiffPairItemData[item];
-  //  scene.addItem(new linDiffPairItem(scene, points[data[0]], points[data[1]], points[data[2]], points[data[3]], data[4]));
+  //  scene.addPolyItem(new linDiffPairItem(scene, points[data[0]], points[data[1]], points[data[2]], points[data[3]], data[4]));
   //}
 
   var frames=0;
@@ -877,7 +851,7 @@ jQuery(document).ready(function($) {
   }, 1000);
 
   //setInterval(function () {
-  //  if (scene.numItems < 10)
+  //  if (scene.numPolyItems < 10)
   //    addQuad();
   //}, 4000);
 
@@ -1000,7 +974,27 @@ jQuery(document).ready(function($) {
     }
   });
 
-  // TODO fun gui stuff
-  //$(document).click(function(event) {
-  //});
+  $('#baseCanvas').mousedown(function(event) {
+    var px = -canvas.width()/2 + event.clientX - offset.left;
+    var py = canvas.height()/2 - event.clientY + offset.top;
+
+    for (var i=0; i<scene.numPolyItems; i++) {
+      if (scene.polyItems[i].pointIntersects([px, py])) {
+        scene.dragItem = new dragItem(scene, [px, py], scene.polyItems[i].pIdx);
+        break;
+      }
+    }
+  });
+
+  $('#baseCanvas').mousemove(function(event) {
+    if (scene.dragItem != null) {
+      var px = -canvas.width()/2 + event.clientX - offset.left;
+      var py = canvas.height()/2 - event.clientY + offset.top;
+      scene.dragItem.dragP = [px, py];
+    }
+  });
+
+  $('#baseCanvas').mouseup(function(event) {
+    scene.deleteDrag = true;
+  });
 });
