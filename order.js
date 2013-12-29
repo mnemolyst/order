@@ -38,6 +38,8 @@ function Scene2D(canvas) {
   this.addPoint = function(x, y) {
     this.points[this.points.length] = this.pointsLast[this.pointsLast.length] = x;
     this.points[this.points.length] = this.pointsLast[this.pointsLast.length] = y;
+    this.pointsAccel[this.pointsAccel.length] = 0;
+    this.pointsAccel[this.pointsAccel.length] = 0;
     this.pointsInvMass[this.pointsInvMass.length] = 1;
 
     return this.numPoints++;
@@ -96,8 +98,8 @@ function Scene2D(canvas) {
       this.polyItems[i].render(this);
     }
 
-    if (this.dragItem != null)
-      this.dragItem.render(this);
+    //if (this.dragItem != null)
+    //  this.dragItem.render(this);
 
     this.context.restore();
   }
@@ -114,7 +116,7 @@ function Scene2D(canvas) {
       this.pointsAccel[yIdx] = gravity?-gravConst:0; // 1g of gravity in heads (8.25in: female) per millisec^2
     }
 
-    //TODO poll each soft constraint item to get its accel contribs
+    this.snapPolys();
   }
 
   this.verlet = function(timeDel) {
@@ -126,8 +128,10 @@ function Scene2D(canvas) {
       var tempX = this.points[xIdx];
       var tempY = this.points[yIdx];
 
-      this.points[xIdx] += this.points[xIdx] - this.pointsLast[xIdx] + this.pointsAccel[xIdx]*timeDel*timeDel;
-      this.points[yIdx] += this.points[yIdx] - this.pointsLast[yIdx] + this.pointsAccel[yIdx]*timeDel*timeDel;
+      //this.points[xIdx] += (this.points[xIdx]-this.pointsLast[xIdx])*0.99 + this.pointsAccel[xIdx]*timeDel*timeDel;
+      //this.points[yIdx] += (this.points[yIdx]-this.pointsLast[yIdx])*0.99 + this.pointsAccel[yIdx]*timeDel*timeDel;
+      this.points[xIdx] += this.points[xIdx]-this.pointsLast[xIdx] + this.pointsAccel[xIdx]*timeDel*timeDel;
+      this.points[yIdx] += this.points[yIdx]-this.pointsLast[yIdx] + this.pointsAccel[yIdx]*timeDel*timeDel;
 
       this.pointsLast[xIdx] = tempX;
       this.pointsLast[yIdx] = tempY;
@@ -158,10 +162,10 @@ function Scene2D(canvas) {
     }
   }
 
-  this.collide = function() {
-    for (var i=0; i<this.numPolyItems; i++) {
-      this.polyItems[i].color = '#eeeeee';
-    }
+  this.collidePolys = function() {
+    //for (var i=0; i<this.numPolyItems; i++) {
+    //  this.polyItems[i].color = '#eeeeee';
+    //}
     for (var i=0; i<this.numPolyItems; i++) {
       for (var j=i+1; j<this.numPolyItems; j++) {
         this.polyItems[i].collidePoly(this.polyItems[j]);
@@ -169,6 +173,21 @@ function Scene2D(canvas) {
         //  this.polyItems[i].color = '#ee0000';
         //  this.polyItems[j].color = '#ee0000';
         //}
+      }
+    }
+  }
+
+  this.snapPolys = function() {
+    for (var i=0; i<this.numPolyItems; i++) {
+      this.polyItems[i].color = '#eeeeee';
+    }
+    for (var i=0; i<this.numPolyItems; i++) {
+      for (var j=i+1; j<this.numPolyItems; j++) {
+        //this.polyItems[i].snapPoly(this.polyItems[j]);
+        if (this.polyItems[i].snapPoly(this.polyItems[j])) {
+          this.polyItems[i].color = '#ee0000';
+          this.polyItems[j].color = '#ee0000';
+        }
       }
     }
   }
@@ -185,11 +204,11 @@ function Scene2D(canvas) {
     this.accumulateForces();
     this.verlet(renderInterval * this.speed);
     this.constrain();
-    this.collide();
-    this.collide();
+    this.collidePolys();
+    this.collidePolys();
     this.constrain();
-    this.collide();
-    this.collide();
+    this.collidePolys();
+    this.collidePolys();
     this.clip();
     this.safeActions();
   }
@@ -281,6 +300,8 @@ function polyItem(scene, pIdx) {
 
   this.snapPoly = function(poly2) {
     var points = this.scene.points;
+    var pointsLast = this.scene.pointsLast;
+    var pointsAccel = this.scene.pointsAccel;
 
     var minOverlap = 1000;
     var bestNorm = [];
@@ -288,98 +309,40 @@ function polyItem(scene, pIdx) {
     var bestj = -1;
     var bestp = -1;
 
-    // First check this poly's sides for penetration against "that" poly's points
+    // check all this poly's sides against all that poly's sides
     for (var i=0; i<this.p2Didx.length; i++) {
-      var j = (i+1<this.p2Didx.length)?i+1:0;
-      var norm = [(points[this.p2Didx[j]+1]-points[this.p2Didx[i]+1])*this.invSideLengths[i], // unit normal of i-th side
-                  (points[this.p2Didx[i]]-points[this.p2Didx[j]])*this.invSideLengths[i]];
+      var si = (i+1<this.p2Didx.length)?i+1:0;
+      for (var j=0; j<poly2.p2Didx.length; j++) {
+        var sj = (j+1<poly2.p2Didx.length)?j+1:0;
 
-      var min12Proj = 0;
-      var max12Proj = 0;
-      var min12Projp = -1;
-      for (var p=0; p<poly2.p2Didx.length; p++) {
-        var proj = (points[poly2.p2Didx[p]]-points[this.p2Didx[i]])*norm[0] + (points[poly2.p2Didx[p]+1]-points[this.p2Didx[i]+1])*norm[1];
-        if (proj<min12Proj) {
-          min12Proj = proj;
-          min12Projp = p;
+        var v1 = [points[poly2.p2Didx[sj]]-points[this.p2Didx[i]], points[poly2.p2Didx[sj]+1]-points[this.p2Didx[i]+1]];
+        var v2 = [points[poly2.p2Didx[j]]-points[this.p2Didx[si]], points[poly2.p2Didx[j]+1]-points[this.p2Didx[si]+1]];
+        var ds1 = v1[0]*v1[0]+v1[1]*v1[1]; // square of distance from this poly's point i to that poly's point sj
+        var ds2 = v2[0]*v2[0]+v2[1]*v2[1];
+        if (ds1<400.0 && ds2<400.0) {
+          var d1 = Math.sqrt(ds1);
+          var d2 = Math.sqrt(ds2);
+          var n1 = [v1[1], -v1[0]];
+          var n2 = [v2[1], -v2[0]];
+          var ui = [(points[this.p2Didx[si]]-points[this.p2Didx[i]])*this.invSideLengths[i], (points[this.p2Didx[si]+1]-points[this.p2Didx[i]+1])*this.invSideLengths[i]];
+          var proj1 = v1[0]*ui[0] + v1[1]*ui[1];
+          var proj2 = v2[0]*ui[0] + v2[1]*ui[1];
+
+          pointsAccel[this.p2Didx[i]] +=     (v1[0]*(d1-10.0) - n1[0]*proj1)*0.001 -  (points[this.p2Didx[i]] - pointsLast[this.p2Didx[i]])*0.01;
+          pointsAccel[this.p2Didx[i]+1] +=   (v1[1]*(d1-10.0) - n1[1]*proj1)*0.001 -  (points[this.p2Didx[i]+1] - pointsLast[this.p2Didx[i]+1])*0.01;
+          pointsAccel[this.p2Didx[si]] +=    (v2[0]*(d2-10.0) - n2[0]*proj2)*0.001 -  (points[this.p2Didx[si]] - pointsLast[this.p2Didx[si]])*0.01;
+          pointsAccel[this.p2Didx[si]+1] +=  (v2[1]*(d2-10.0) - n2[1]*proj2)*0.001 -  (points[this.p2Didx[si]+1] - pointsLast[this.p2Didx[si]+1])*0.01;
+          pointsAccel[poly2.p2Didx[j]] +=    (-v2[0]*(d2-10.0) + n2[0]*proj2)*0.001 - (points[poly2.p2Didx[j]] - pointsLast[poly2.p2Didx[j]])*0.01;
+          pointsAccel[poly2.p2Didx[j]+1] +=  (-v2[1]*(d2-10.0) + n2[1]*proj2)*0.001 - (points[poly2.p2Didx[j]+1] - pointsLast[poly2.p2Didx[j]+1])*0.01;
+          pointsAccel[poly2.p2Didx[sj]] +=   (-v1[0]*(d1-10.0) + n1[0]*proj1)*0.001 - (points[poly2.p2Didx[sj]] - pointsLast[poly2.p2Didx[sj]])*0.01;
+          pointsAccel[poly2.p2Didx[sj]+1] += (-v1[1]*(d1-10.0) + n1[1]*proj1)*0.001 - (points[poly2.p2Didx[sj]+1] - pointsLast[poly2.p2Didx[sj]+1])*0.01;
+
+          return true;
         }
-        max12Proj = (max12Proj<proj)?proj:max12Proj;
       }
-
-      var minProj = (-this.normalDepths[i]<min12Proj)?-this.normalDepths[i]:min12Proj;
-      var maxProj = (max12Proj>0)?max12Proj:0;
-
-      if (min12Projp == -1)
-        return false;
-
-      var overlap = max12Proj - min12Proj + this.normalDepths[i] - maxProj + minProj;
-      if (overlap > 0) {
-        //alert(overlap);
-        if (overlap < minOverlap) {
-          minOverlap = overlap;
-          bestNorm = norm;
-          besti = this.p2Didx[i];
-          bestj = this.p2Didx[j];
-          bestp = poly2.p2Didx[min12Projp];
-        }
-      } else return false;
     }
 
-    // Then check "that" poly's sides
-    for (var i=0; i<poly2.p2Didx.length; i++) {
-      var j = (i+1<poly2.p2Didx.length)?i+1:0;
-      var norm = [(points[poly2.p2Didx[j]+1]-points[poly2.p2Didx[i]+1])*poly2.invSideLengths[i], // unit normal of i-th side
-                  (points[poly2.p2Didx[i]]-points[poly2.p2Didx[j]])*poly2.invSideLengths[i]];
-
-      var min21Proj = 0;
-      var max21Proj = 0;
-      var min21Projp = -1;
-      for (var p=0; p<this.p2Didx.length; p++) {
-        var proj = (points[this.p2Didx[p]]-points[poly2.p2Didx[i]])*norm[0] + (points[this.p2Didx[p]+1]-points[poly2.p2Didx[i]+1])*norm[1];
-        if (proj<min21Proj) {
-          min21Proj = proj;
-          min21Projp = p;
-        }
-        max21Proj = (max21Proj<proj)?proj:max21Proj;
-      }
-
-      var minProj = (-poly2.normalDepths[i]<min21Proj)?-poly2.normalDepths[i]:min21Proj;
-      var maxProj = (max21Proj>0)?max21Proj:0;
-
-      if (min21Projp == -1)
-        return false;
-
-      var overlap = max21Proj - min21Proj + poly2.normalDepths[i] - maxProj + minProj;
-      if (overlap > 0) {
-        //alert(overlap);
-        if (overlap < minOverlap) {
-          minOverlap = overlap;
-          bestNorm = norm;
-          besti = poly2.p2Didx[i];
-          bestj = poly2.p2Didx[j];
-          bestp = this.p2Didx[min21Projp];
-        }
-      } else return false;
-    }
-
-    // Update points
-    if (Math.abs(points[bestj] - points[besti]) > Math.abs(points[bestj+1] - points[besti+1]))
-      var ijHitF = Math.abs(points[bestp]-points[besti]) / Math.abs(points[bestj]-points[besti]);
-    else
-      var ijHitF = Math.abs(points[bestp+1]-points[besti+1]) / Math.abs(points[bestj+1]-points[besti+1]);
-    var l = 1.0/(ijHitF*ijHitF + (1-ijHitF)*(1-ijHitF));
-    var iHitP = (1-ijHitF)*l;
-    var jHitP = ijHitF*l;
-    var push = [bestNorm[0]*minOverlap*0.5, bestNorm[1]*minOverlap*0.5];
-    //alert (bestNorm[0] + ' ' + bestNorm[1]);
-    points[besti]   -= push[0]*iHitP;
-    points[besti+1] -= push[1]*iHitP;
-    points[bestj]   -= push[0]*jHitP;
-    points[bestj+1] -= push[1]*jHitP;
-    points[bestp]   += push[0];
-    points[bestp+1] += push[1];
-
-    return true;
+    return false;
   }
 
   this.collidePoly = function(poly2) {
@@ -790,19 +753,21 @@ jQuery(document).ready(function($) {
   var offset = canvas.offset();
   var scene = new Scene2D(canvas[0]);
   var state = 'none';
+  var px = 0;
+  var py = 0;
   var i;
 
   function addPoly(n) {
     //var x = Math.random() * canvas.width() - canvas.width()/2;
     //var y = Math.random() * canvas.height() - canvas.height()/2;
-    var x = 0;
-    var y = 0;
+    var x = px;
+    var y = py;
     var r = 50;
     n = n||4;
 
     var lastDir = Math.random() * 2 * Math.PI;
-    var lastx = x - (Math.random()*2+2) * Math.cos(lastDir);
-    var lasty = y - (Math.random()*2+2) * Math.sin(lastDir);
+    var lastx = x;// - (Math.random()*2+2) * Math.cos(lastDir);
+    var lasty = y;// - (Math.random()*2+2) * Math.sin(lastDir);
 
     var pIdx = [];
     for (var i=0; i<n; i++) {
@@ -891,12 +856,10 @@ jQuery(document).ready(function($) {
         break;
       case 46:                                      //delete
         break;
-      case 48:                                      //'0'
+      case 48: case 49: case 50:                    //'0'-'2'
         break;
-      case 56:                                      //'8' and '*'
-        break;
-      case 48: case 49: case 50: case 51: case 52:  //'0'-'4'
-      case 53: case 54: case 55: case 56: case 57:  //'5'-'9'
+      case 51: case 52: case 53: case 54: case 55: case 56: case 57: //'3'-'9'
+        addPoly(event.which - 48);
         break;
       case 61:                                      //'=' / '+'
         break;
@@ -975,9 +938,6 @@ jQuery(document).ready(function($) {
   });
 
   $('#baseCanvas').mousedown(function(event) {
-    var px = -canvas.width()/2 + event.clientX - offset.left;
-    var py = canvas.height()/2 - event.clientY + offset.top;
-
     for (var i=0; i<scene.numPolyItems; i++) {
       if (scene.polyItems[i].pointIntersects([px, py])) {
         scene.dragItem = new dragItem(scene, [px, py], scene.polyItems[i].pIdx);
@@ -987,9 +947,9 @@ jQuery(document).ready(function($) {
   });
 
   $('#baseCanvas').mousemove(function(event) {
+    px = -canvas.width()/2 + event.clientX - offset.left;
+    py = canvas.height()/2 - event.clientY + offset.top;
     if (scene.dragItem != null) {
-      var px = -canvas.width()/2 + event.clientX - offset.left;
-      var py = canvas.height()/2 - event.clientY + offset.top;
       scene.dragItem.dragP = [px, py];
     }
   });
