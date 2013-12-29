@@ -89,9 +89,8 @@ function Scene2D(canvas) {
     if (drawText) {
       this.context.fillStyle = '#aaaaaa';
       this.context.textBaseline = 'top';
-      this.context.fillText('rotation: ' + this.rotation*180/Math.PI, 5, 5);
-      this.context.fillText('framerate: ' + framerate, 5, 20);
-      this.context.fillText('polys: ' + this.numPolyItems, 5, 35);
+      this.context.fillText('framerate: ' + framerate, 5, 5);
+      this.context.fillText('polys: ' + this.numPolyItems, 5, 20);
     }
 
     for (var i=0; i<this.numPolyItems; i++) {
@@ -128,10 +127,10 @@ function Scene2D(canvas) {
       var tempX = this.points[xIdx];
       var tempY = this.points[yIdx];
 
-      //this.points[xIdx] += (this.points[xIdx]-this.pointsLast[xIdx])*0.99 + this.pointsAccel[xIdx]*timeDel*timeDel;
-      //this.points[yIdx] += (this.points[yIdx]-this.pointsLast[yIdx])*0.99 + this.pointsAccel[yIdx]*timeDel*timeDel;
-      this.points[xIdx] += this.points[xIdx]-this.pointsLast[xIdx] + this.pointsAccel[xIdx]*timeDel*timeDel;
-      this.points[yIdx] += this.points[yIdx]-this.pointsLast[yIdx] + this.pointsAccel[yIdx]*timeDel*timeDel;
+      this.points[xIdx] += (this.points[xIdx]-this.pointsLast[xIdx])*0.99 + this.pointsAccel[xIdx]*timeDel*timeDel;
+      this.points[yIdx] += (this.points[yIdx]-this.pointsLast[yIdx])*0.99 + this.pointsAccel[yIdx]*timeDel*timeDel;
+      //this.points[xIdx] += this.points[xIdx]-this.pointsLast[xIdx] + this.pointsAccel[xIdx]*timeDel*timeDel;
+      //this.points[yIdx] += this.points[yIdx]-this.pointsLast[yIdx] + this.pointsAccel[yIdx]*timeDel*timeDel;
 
       this.pointsLast[xIdx] = tempX;
       this.pointsLast[yIdx] = tempY;
@@ -298,53 +297,6 @@ function polyItem(scene, pIdx) {
     }
   }
 
-  this.snapPoly = function(poly2) {
-    var points = this.scene.points;
-    var pointsLast = this.scene.pointsLast;
-    var pointsAccel = this.scene.pointsAccel;
-
-    var minOverlap = 1000;
-    var bestNorm = [];
-    var besti = -1;
-    var bestj = -1;
-    var bestp = -1;
-
-    // check all this poly's sides against all that poly's sides
-    for (var i=0; i<this.p2Didx.length; i++) {
-      var si = (i+1<this.p2Didx.length)?i+1:0;
-      for (var j=0; j<poly2.p2Didx.length; j++) {
-        var sj = (j+1<poly2.p2Didx.length)?j+1:0;
-
-        var v1 = [points[poly2.p2Didx[sj]]-points[this.p2Didx[i]], points[poly2.p2Didx[sj]+1]-points[this.p2Didx[i]+1]];
-        var v2 = [points[poly2.p2Didx[j]]-points[this.p2Didx[si]], points[poly2.p2Didx[j]+1]-points[this.p2Didx[si]+1]];
-        var ds1 = v1[0]*v1[0]+v1[1]*v1[1]; // square of distance from this poly's point i to that poly's point sj
-        var ds2 = v2[0]*v2[0]+v2[1]*v2[1];
-        if (ds1<400.0 && ds2<400.0) {
-          var d1 = Math.sqrt(ds1);
-          var d2 = Math.sqrt(ds2);
-          var n1 = [v1[1], -v1[0]];
-          var n2 = [v2[1], -v2[0]];
-          var ui = [(points[this.p2Didx[si]]-points[this.p2Didx[i]])*this.invSideLengths[i], (points[this.p2Didx[si]+1]-points[this.p2Didx[i]+1])*this.invSideLengths[i]];
-          var proj1 = v1[0]*ui[0] + v1[1]*ui[1];
-          var proj2 = v2[0]*ui[0] + v2[1]*ui[1];
-
-          pointsAccel[this.p2Didx[i]] +=     (v1[0]*(d1-10.0) - n1[0]*proj1)*0.001 -  (points[this.p2Didx[i]] - pointsLast[this.p2Didx[i]])*0.01;
-          pointsAccel[this.p2Didx[i]+1] +=   (v1[1]*(d1-10.0) - n1[1]*proj1)*0.001 -  (points[this.p2Didx[i]+1] - pointsLast[this.p2Didx[i]+1])*0.01;
-          pointsAccel[this.p2Didx[si]] +=    (v2[0]*(d2-10.0) - n2[0]*proj2)*0.001 -  (points[this.p2Didx[si]] - pointsLast[this.p2Didx[si]])*0.01;
-          pointsAccel[this.p2Didx[si]+1] +=  (v2[1]*(d2-10.0) - n2[1]*proj2)*0.001 -  (points[this.p2Didx[si]+1] - pointsLast[this.p2Didx[si]+1])*0.01;
-          pointsAccel[poly2.p2Didx[j]] +=    (-v2[0]*(d2-10.0) + n2[0]*proj2)*0.001 - (points[poly2.p2Didx[j]] - pointsLast[poly2.p2Didx[j]])*0.01;
-          pointsAccel[poly2.p2Didx[j]+1] +=  (-v2[1]*(d2-10.0) + n2[1]*proj2)*0.001 - (points[poly2.p2Didx[j]+1] - pointsLast[poly2.p2Didx[j]+1])*0.01;
-          pointsAccel[poly2.p2Didx[sj]] +=   (-v1[0]*(d1-10.0) + n1[0]*proj1)*0.001 - (points[poly2.p2Didx[sj]] - pointsLast[poly2.p2Didx[sj]])*0.01;
-          pointsAccel[poly2.p2Didx[sj]+1] += (-v1[1]*(d1-10.0) + n1[1]*proj1)*0.001 - (points[poly2.p2Didx[sj]+1] - pointsLast[poly2.p2Didx[sj]+1])*0.01;
-
-          return true;
-        }
-      }
-    }
-
-    return false;
-  }
-
   this.collidePoly = function(poly2) {
     var points = this.scene.points;
 
@@ -446,6 +398,53 @@ function polyItem(scene, pIdx) {
     points[bestp+1] += push[1];
 
     return true;
+  }
+
+  this.snapPoly = function(poly2) {
+    var points = this.scene.points;
+    var pointsLast = this.scene.pointsLast;
+    var pointsAccel = this.scene.pointsAccel;
+
+    var minOverlap = 1000;
+    var bestNorm = [];
+    var besti = -1;
+    var bestj = -1;
+    var bestp = -1;
+
+    // check all this poly's sides against all that poly's sides
+    for (var i=0; i<this.p2Didx.length; i++) {
+      var si = (i+1<this.p2Didx.length)?i+1:0;
+      for (var j=0; j<poly2.p2Didx.length; j++) {
+        var sj = (j+1<poly2.p2Didx.length)?j+1:0;
+
+        var v1 = [points[poly2.p2Didx[sj]]-points[this.p2Didx[i]], points[poly2.p2Didx[sj]+1]-points[this.p2Didx[i]+1]];
+        var v2 = [points[poly2.p2Didx[j]]-points[this.p2Didx[si]], points[poly2.p2Didx[j]+1]-points[this.p2Didx[si]+1]];
+        var ds1 = v1[0]*v1[0]+v1[1]*v1[1]; // square of distance from this poly's point i to that poly's point sj
+        var ds2 = v2[0]*v2[0]+v2[1]*v2[1];
+        if (ds1<400.0 && ds2<400.0) {
+          var d1 = Math.sqrt(ds1);
+          var d2 = Math.sqrt(ds2);
+          var n1 = [v1[1], -v1[0]];
+          var n2 = [v2[1], -v2[0]];
+          var ui = [(points[this.p2Didx[si]]-points[this.p2Didx[i]])*this.invSideLengths[i], (points[this.p2Didx[si]+1]-points[this.p2Didx[i]+1])*this.invSideLengths[i]];
+          var proj1 = v1[0]*ui[0] + v1[1]*ui[1];
+          var proj2 = v2[0]*ui[0] + v2[1]*ui[1];
+
+          pointsAccel[this.p2Didx[i]] +=     (v1[0]*(d1-10.0) - n1[0]*proj1)*0.001 -  (points[this.p2Didx[i]] - pointsLast[this.p2Didx[i]])*0.01;
+          pointsAccel[this.p2Didx[i]+1] +=   (v1[1]*(d1-10.0) - n1[1]*proj1)*0.001 -  (points[this.p2Didx[i]+1] - pointsLast[this.p2Didx[i]+1])*0.01;
+          pointsAccel[this.p2Didx[si]] +=    (v2[0]*(d2-10.0) - n2[0]*proj2)*0.001 -  (points[this.p2Didx[si]] - pointsLast[this.p2Didx[si]])*0.01;
+          pointsAccel[this.p2Didx[si]+1] +=  (v2[1]*(d2-10.0) - n2[1]*proj2)*0.001 -  (points[this.p2Didx[si]+1] - pointsLast[this.p2Didx[si]+1])*0.01;
+          pointsAccel[poly2.p2Didx[j]] +=    (-v2[0]*(d2-10.0) + n2[0]*proj2)*0.001 - (points[poly2.p2Didx[j]] - pointsLast[poly2.p2Didx[j]])*0.01;
+          pointsAccel[poly2.p2Didx[j]+1] +=  (-v2[1]*(d2-10.0) + n2[1]*proj2)*0.001 - (points[poly2.p2Didx[j]+1] - pointsLast[poly2.p2Didx[j]+1])*0.01;
+          pointsAccel[poly2.p2Didx[sj]] +=   (-v1[0]*(d1-10.0) + n1[0]*proj1)*0.001 - (points[poly2.p2Didx[sj]] - pointsLast[poly2.p2Didx[sj]])*0.01;
+          pointsAccel[poly2.p2Didx[sj]+1] += (-v1[1]*(d1-10.0) + n1[1]*proj1)*0.001 - (points[poly2.p2Didx[sj]+1] - pointsLast[poly2.p2Didx[sj]+1])*0.01;
+
+          return true;
+        }
+      }
+    }
+
+    return false;
   }
 
   this.pointIntersects = function(point) {
@@ -763,21 +762,13 @@ jQuery(document).ready(function($) {
     var x = px;
     var y = py;
     var r = 50;
-    n = n||4;
-
-    var lastDir = Math.random() * 2 * Math.PI;
-    var lastx = x;// - (Math.random()*2+2) * Math.cos(lastDir);
-    var lasty = y;// - (Math.random()*2+2) * Math.sin(lastDir);
+    var t = 2*Math.PI/n
 
     var pIdx = [];
     for (var i=0; i<n; i++) {
-      pIdx[i] = scene.addPoint(x+r*Math.cos(i*2*Math.PI/n), y+r*Math.sin(i*2*Math.PI/n));
+      pIdx[i] = scene.addPoint(x+r*Math.cos(t/2 + i*t), y+r*Math.sin(t/2 + i*t));
     }
     scene.addPolyItem(new polyItem(scene, pIdx));
-    for (var i=0; i<n; i++) {
-      scene.pointsLast[pIdx[i]*2] = lastx+r*Math.cos(i*2*Math.PI/n);
-      scene.pointsLast[pIdx[i]*2+1] = lasty+r*Math.sin(i*2*Math.PI/n);
-    }
   }
 
   //var points = {};
@@ -880,7 +871,7 @@ jQuery(document).ready(function($) {
       case 67:                                      //'c'
         break;
       case 68:                                      //'d'
-        scene.zTranslate += 0.2;
+        addDart(); //TODO
         break;
       case 69:                                      //'e'
         break;
