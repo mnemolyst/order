@@ -2,9 +2,16 @@ var drawText = false;
 var renderInterval = 33; //milliseconds
 var gravity = false;
 var gravConst = 32.2 * 12 / 1000000 / 8.25; // ft/s^2 -> heads/ms^2 (1 head = 8.25 in)
-var framerate = 0;
+var frameRate = 0;
+var collisions = 0;
+var collideRate = 0;
 var hoist = false;
 var pause = false;
+var snapCurve = [];
+for (var i=0; i<=64; i++) {
+  var x = -3.0 + 6.0/64*i;
+  snapCurve[i] = Math.sin(Math.sqrt(x))*Math.exp(-x);
+}
 
 function crossProd(x, y) {
   return [x[1]*y[2]-x[2]*y[1], x[2]*y[0]-x[0]*y[2], x[0]*y[1]-x[1]*y[0]];
@@ -30,7 +37,7 @@ function Scene2D(canvas) {
   this.numPolyItems = 0;
   this.constraints = [];
   this.numConstraints = 0;
-  this.speed = 0.1;
+  this.speed = 1;
   this.constrainOrder = [];
   this.dragItem = null;
   this.deleteDrag = false;
@@ -54,6 +61,9 @@ function Scene2D(canvas) {
     this.polyItems[this.polyItems.length] = item;
 
     return this.numPolyItems++;
+  }
+
+  this.makeSnapCurve = function(n, ll, ul) {
   }
 
   this.randomizeConstrainOrder = function() {
@@ -89,8 +99,9 @@ function Scene2D(canvas) {
     if (drawText) {
       this.context.fillStyle = '#aaaaaa';
       this.context.textBaseline = 'top';
-      this.context.fillText('framerate: ' + framerate, 5, 5);
-      this.context.fillText('polys: ' + this.numPolyItems, 5, 20);
+      this.context.fillText('frame rate: ' + frameRate, 5, 5);
+      this.context.fillText('collide rate: ' + collideRate, 5, 20);
+      this.context.fillText('polys: ' + this.numPolyItems, 5, 35);
     }
 
     for (var i=0; i<this.numPolyItems; i++) {
@@ -167,8 +178,24 @@ function Scene2D(canvas) {
     //}
     for (var i=0; i<this.numPolyItems; i++) {
       for (var j=i+1; j<this.numPolyItems; j++) {
-        this.polyItems[i].collidePoly(this.polyItems[j]);
-        //if (this.polyItems[i].collidePoly(this.polyItems[j])) {
+        //this.polyItems[i].collidePoly(this.polyItems[j]);
+        if (this.polyItems[i].collidePoly(this.polyItems[j])) {
+          collisions++;
+          //this.polyItems[i].color = '#ee0000';
+          //this.polyItems[j].color = '#ee0000';
+        }
+      }
+    }
+  }
+
+  this.snapPolys = function() {
+    //for (var i=0; i<this.numPolyItems; i++) {
+    //  this.polyItems[i].color = '#eeeeee';
+    //}
+    for (var i=0; i<this.numPolyItems; i++) {
+      for (var j=i+1; j<this.numPolyItems; j++) {
+        this.polyItems[i].snapPoly(this.polyItems[j]);
+        //if (this.polyItems[i].snapPoly(this.polyItems[j])) {
         //  this.polyItems[i].color = '#ee0000';
         //  this.polyItems[j].color = '#ee0000';
         //}
@@ -176,18 +203,10 @@ function Scene2D(canvas) {
     }
   }
 
-  this.snapPolys = function() {
+  this.fixPolys = function() {
     for (var i=0; i<this.numPolyItems; i++) {
-      this.polyItems[i].color = '#eeeeee';
-    }
-    for (var i=0; i<this.numPolyItems; i++) {
-      for (var j=i+1; j<this.numPolyItems; j++) {
-        //this.polyItems[i].snapPoly(this.polyItems[j]);
-        if (this.polyItems[i].snapPoly(this.polyItems[j])) {
-          this.polyItems[i].color = '#ee0000';
-          this.polyItems[j].color = '#ee0000';
-        }
-      }
+      if (this.polyItems[i].isInverted())
+        this.polyItems[i].invert();
     }
   }
 
@@ -196,6 +215,7 @@ function Scene2D(canvas) {
       this.dragItem = null;
       this.deleteDrag = false;
     }
+    this.fixPolys();
   }
 
   this.tic = function() {
@@ -272,8 +292,10 @@ function polyItem(scene, pIdx) {
 
     context.beginPath();
     context.strokeStyle = this.color;
+    //context.fillStyle = '#eeeeee';
     for (var i=0; i<this.p2Didx.length; i++) {
       context.lineTo(points[this.p2Didx[i]], this.scene.sceneHeight - points[this.p2Didx[i]+1]);
+      //context.fillText(i, points[this.p2Didx[i]], this.scene.sceneHeight - points[this.p2Didx[i]+1]);
     }
     context.lineTo(points[this.p2Didx[0]], this.scene.sceneHeight - points[this.p2Didx[0]+1]); // close the polygon
     context.stroke();
@@ -414,6 +436,7 @@ function polyItem(scene, pIdx) {
     // check all this poly's sides against all that poly's sides
     for (var i=0; i<this.p2Didx.length; i++) {
       var si = (i+1<this.p2Didx.length)?i+1:0;
+
       for (var j=0; j<poly2.p2Didx.length; j++) {
         var sj = (j+1<poly2.p2Didx.length)?j+1:0;
 
@@ -421,23 +444,29 @@ function polyItem(scene, pIdx) {
         var v2 = [points[poly2.p2Didx[j]]-points[this.p2Didx[si]], points[poly2.p2Didx[j]+1]-points[this.p2Didx[si]+1]];
         var ds1 = v1[0]*v1[0]+v1[1]*v1[1]; // square of distance from this poly's point i to that poly's point sj
         var ds2 = v2[0]*v2[0]+v2[1]*v2[1];
-        if (ds1<400.0 && ds2<400.0) {
-          var d1 = Math.sqrt(ds1);
-          var d2 = Math.sqrt(ds2);
-          var n1 = [v1[1], -v1[0]];
-          var n2 = [v2[1], -v2[0]];
-          var ui = [(points[this.p2Didx[si]]-points[this.p2Didx[i]])*this.invSideLengths[i], (points[this.p2Didx[si]+1]-points[this.p2Didx[i]+1])*this.invSideLengths[i]];
-          var proj1 = v1[0]*ui[0] + v1[1]*ui[1];
-          var proj2 = v2[0]*ui[0] + v2[1]*ui[1];
 
-          pointsAccel[this.p2Didx[i]] +=     (v1[0]*(d1-10.0) - n1[0]*proj1)*0.001 -  (points[this.p2Didx[i]] - pointsLast[this.p2Didx[i]])*0.01;
-          pointsAccel[this.p2Didx[i]+1] +=   (v1[1]*(d1-10.0) - n1[1]*proj1)*0.001 -  (points[this.p2Didx[i]+1] - pointsLast[this.p2Didx[i]+1])*0.01;
-          pointsAccel[this.p2Didx[si]] +=    (v2[0]*(d2-10.0) - n2[0]*proj2)*0.001 -  (points[this.p2Didx[si]] - pointsLast[this.p2Didx[si]])*0.01;
-          pointsAccel[this.p2Didx[si]+1] +=  (v2[1]*(d2-10.0) - n2[1]*proj2)*0.001 -  (points[this.p2Didx[si]+1] - pointsLast[this.p2Didx[si]+1])*0.01;
-          pointsAccel[poly2.p2Didx[j]] +=    (-v2[0]*(d2-10.0) + n2[0]*proj2)*0.001 - (points[poly2.p2Didx[j]] - pointsLast[poly2.p2Didx[j]])*0.01;
-          pointsAccel[poly2.p2Didx[j]+1] +=  (-v2[1]*(d2-10.0) + n2[1]*proj2)*0.001 - (points[poly2.p2Didx[j]+1] - pointsLast[poly2.p2Didx[j]+1])*0.01;
-          pointsAccel[poly2.p2Didx[sj]] +=   (-v1[0]*(d1-10.0) + n1[0]*proj1)*0.001 - (points[poly2.p2Didx[sj]] - pointsLast[poly2.p2Didx[sj]])*0.01;
-          pointsAccel[poly2.p2Didx[sj]+1] += (-v1[1]*(d1-10.0) + n1[1]*proj1)*0.001 - (points[poly2.p2Didx[sj]+1] - pointsLast[poly2.p2Didx[sj]+1])*0.01;
+        if (ds1<100.0 && ds2<100.0) {
+          var snapGap = 0.001;
+          var ui = [(points[this.p2Didx[si]]-points[this.p2Didx[i]])*this.invSideLengths[i], (points[this.p2Didx[si]+1]-points[this.p2Didx[i]+1])*this.invSideLengths[i]];
+          var uj = [(points[poly2.p2Didx[sj]]-points[poly2.p2Didx[j]])*poly2.invSideLengths[j], (points[poly2.p2Didx[sj]+1]-points[poly2.p2Didx[j]+1])*poly2.invSideLengths[j]];
+          var ni = [ui[1], -ui[0]];
+          var nj = [uj[1], -uj[0]];
+          var v1 = [points[poly2.p2Didx[sj]]+nj[0]*snapGap-points[this.p2Didx[i]], points[poly2.p2Didx[sj]+1]+nj[1]*snapGap-points[this.p2Didx[i]+1]];
+          var v2 = [points[poly2.p2Didx[j]]-points[this.p2Didx[si]]+nj[0]*snapGap, points[poly2.p2Didx[j]+1]-points[this.p2Didx[si]+1]+nj[1]*snapGap];
+
+          var vi = [points[this.p2Didx[i]]-pointsLast[this.p2Didx[i]], points[this.p2Didx[i]+1]-pointsLast[this.p2Didx[i]+1]];
+          var vsi = [points[this.p2Didx[si]]-pointsLast[this.p2Didx[si]], points[this.p2Didx[si]+1]-pointsLast[this.p2Didx[si]+1]];
+          var vj = [points[poly2.p2Didx[j]]-pointsLast[poly2.p2Didx[j]], points[poly2.p2Didx[j]+1]-pointsLast[poly2.p2Didx[j]+1]];
+          var vsj = [points[poly2.p2Didx[sj]]-pointsLast[poly2.p2Didx[sj]], points[poly2.p2Didx[sj]+1]-pointsLast[poly2.p2Didx[sj]+1]];
+
+          pointsAccel[this.p2Didx[i]]     +=  0.0001*v1[0] - vi[0]*0.0001;
+          pointsAccel[this.p2Didx[i]+1]   +=  0.0001*v1[1] - vi[1]*0.0001;
+          pointsAccel[this.p2Didx[si]]    +=  0.0001*v2[0] - vsi[0]*0.0001;
+          pointsAccel[this.p2Didx[si]+1]  +=  0.0001*v2[1] - vsi[1]*0.0001;
+          pointsAccel[poly2.p2Didx[j]]    += -0.0001*v2[0] - vj[0]*0.0001;
+          pointsAccel[poly2.p2Didx[j]+1]  += -0.0001*v2[1] - vj[1]*0.0001;
+          pointsAccel[poly2.p2Didx[sj]]   += -0.0001*v1[0] - vsj[0]*0.0001;
+          pointsAccel[poly2.p2Didx[sj]+1] += -0.0001*v1[1] - vsj[1]*0.0001;
 
           return true;
         }
@@ -460,6 +489,23 @@ function polyItem(scene, pIdx) {
     }
 
     return true;
+  }
+
+  // checks the cross product of the first two sides. this assumes a convex poly
+  this.isInverted = function() {
+    var points = this.scene.points;
+    var v1 = [points[this.p2Didx[1]] - points[this.p2Didx[0]], points[this.p2Didx[1]+1] - points[this.p2Didx[0]+1]];
+    var v2 = [points[this.p2Didx[2]] - points[this.p2Didx[1]], points[this.p2Didx[2]+1] - points[this.p2Didx[1]+1]];
+    return v1[0]*v2[1]-v1[1]*v2[0] < 0;
+  }
+
+  // reverses the vertices' direction
+  this.invert = function() {
+    var inverted = [];
+    for (var i=this.p2Didx.length-1; i>=0; i--) {
+      inverted[inverted.length] = this.p2Didx[i];
+    }
+    this.p2Didx = inverted;
   }
 }
 
@@ -771,6 +817,26 @@ jQuery(document).ready(function($) {
     scene.addPolyItem(new polyItem(scene, pIdx));
   }
 
+  function addRhombA() {
+    var l = 50.0;
+    var p1 = scene.addPoint(px+l*Math.cos(Math.PI/10), py);
+    var p2 = scene.addPoint(px, py+l*Math.sin(Math.PI/10));
+    var p3 = scene.addPoint(px-l*Math.cos(Math.PI/10), py);
+    var p4 = scene.addPoint(px, py-l*Math.sin(Math.PI/10));
+
+    scene.addPolyItem(new polyItem(scene, [p1,p2,p3,p4]));
+  }
+
+  function addRhombB() {
+    var l = 50.0;
+    var p1 = scene.addPoint(px+l*Math.cos(Math.PI/5), py);
+    var p2 = scene.addPoint(px, py+l*Math.sin(Math.PI/5));
+    var p3 = scene.addPoint(px-l*Math.cos(Math.PI/5), py);
+    var p4 = scene.addPoint(px, py-l*Math.sin(Math.PI/5));
+
+    scene.addPolyItem(new polyItem(scene, [p1,p2,p3,p4]));
+  }
+
   //var points = {};
   //for (var p in pointData) {
   //  var point = pointData[p];
@@ -800,10 +866,10 @@ jQuery(document).ready(function($) {
   }, renderInterval);
 
   setInterval(function () {
-    if (drawText) {
-      framerate = frames;
-      frames=0;
-    }
+    frameRate = frames;
+    collideRate = collisions;
+    frames=0;
+    collisions=0;
   }, 1000);
 
   //setInterval(function () {
@@ -854,19 +920,11 @@ jQuery(document).ready(function($) {
         break;
       case 61:                                      //'=' / '+'
         break;
-      case 66:                                      //'b' bomb
-        var x = Math.random() * canvas.width() - canvas.width()/2;
-        var y = Math.random() * canvas.height() - canvas.height()/2;
-        var pow = 0.02;
-
-        for (var i=0; i<scene.points3D.length; i+=3) {
-          var delta = [scene.points3D[i]-x, scene.points3D[i+1]-y, scene.points3D[i+2]-z];
-          var deltalength = Math.sqrt(delta[0]*delta[0] + delta[1]*delta[1] + delta[2]*delta[2]); //TODO optimize
-          var c = pow/(deltalength*deltalength*deltalength);
-          for (var j=0; j<3; j++) {
-            scene.points3D[i+j] += delta[j]*c;
-          }
-        }
+      case 65:                                      //'a'
+        addRhombA();
+        break;
+      case 66:                                      //'b'
+        addRhombB();
         break;
       case 67:                                      //'c'
         break;
