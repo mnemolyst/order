@@ -8,7 +8,7 @@ define(['jquery', 'Matrix2D'], function($, Matrix2D) {
     var collideRate = 0;
     var pause = false;
     var snapCurve = [];
-    var toolbarWidth = 100;
+    var toolbarWidth = 200;
     for (var i=0; i<=64; i++) {
         var x = -3.0 + 6.0/64*i;
         snapCurve[i] = Math.sin(Math.sqrt(x))*Math.exp(-x);
@@ -89,7 +89,7 @@ define(['jquery', 'Matrix2D'], function($, Matrix2D) {
         this.context.fillStyle = '#000000';
         this.context.fillRect(0, 0, this.sceneWidth, this.sceneHeight);
         this.context.fillStyle = '#333333';
-        this.context.fillRect(0, 0, 100, this.sceneHeight);
+        this.context.fillRect(0, 0, toolbarWidth, this.sceneHeight);
         if (drawText) {
             this.context.fillStyle = '#aaaaaa';
             this.context.textBaseline = 'top';
@@ -236,6 +236,7 @@ define(['jquery', 'Matrix2D'], function($, Matrix2D) {
         this.clipRight = this.sceneWidth*0.5;
         this.clipBottom = -this.sceneHeight*0.5;
         this.clipTop = this.sceneHeight*0.5;
+        this.matrixGood = false;
     }
 
     function polyItem(scene, pIdx) {
@@ -576,18 +577,27 @@ define(['jquery', 'Matrix2D'], function($, Matrix2D) {
         var py = 0;
         var i;
 
+        function genPoly(n, x, y) {
+            var t = 2*Math.PI/n
+            var sl = Math.sin(t/2);
+            var r = 35 / sl;
+
+            var p = [];
+            for (var i=0; i<n; i++) {
+                p[2*i] = x + r * Math.cos(t/2 + i*t);
+                p[2*i+1] = y + r * Math.sin(t/2 + i*t);
+            }
+
+            return p;
+        }
+
         function addPoly(n) {
             //var x = Math.random() * canvas.width() - canvas.width()/2;
             //var y = Math.random() * canvas.height() - canvas.height()/2;
-            var x = px;
-            var y = py;
-            var t = 2*Math.PI/n
-            var sl = Math.sin(t/2);
-            var r = 40 / sl;
-
+            var p = genPoly(n, px, py);
             var pIdx = [];
-            for (var i=0; i<n; i++) {
-                pIdx[i] = scene.addPoint(x + r * Math.cos(t/2 + i*t), y + r * Math.sin(t/2 + i*t));
+            for (var i = 0; i < p.length; i+=2) {
+                pIdx.push(scene.addPoint(p[i], p[i+1]));
             }
             scene.addPolyItem(new polyItem(scene, pIdx));
         }
@@ -611,6 +621,8 @@ define(['jquery', 'Matrix2D'], function($, Matrix2D) {
 
             scene.addPolyItem(new polyItem(scene, [p1,p2,p3,p4]));
         }
+
+        //triItem = genPoly(3, 
 
         var frames=0;
 
