@@ -1,9 +1,3 @@
-body {
-    font: 14px "Lucida Grande", Helvetica, Arial, sans-serif;
-    margin:0px;
-    overflow:hidden;
-}
-
-a {
-    color: #00B7FF;
+#baseCanvas {
+    cursor: crosshair;
 }

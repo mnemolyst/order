@@ -7,16 +7,63 @@ define(['jquery', 'Matrix2D'], function($, Matrix2D) {
     var collisions = 0;
     var collideRate = 0;
     var pause = false;
-    var snapCurve = [];
-    var toolbarWidth = 200;
-    for (var i=0; i<=64; i++) {
-        var x = -3.0 + 6.0/64*i;
-        snapCurve[i] = Math.sin(Math.sqrt(x))*Math.exp(-x);
-    }
 
     function crossProd(x, y) {
         return [x[1]*y[2]-x[2]*y[1], x[2]*y[0]-x[0]*y[2], x[0]*y[1]-x[1]*y[0]];
     }
+
+    function ToolTip(now, x, y) {
+        this.t = now;
+        this.x = x;
+        this.y = y;
+    }
+    ToolTip.prototype.render = function(context) {
+        var e = Date.now() - this.t;
+        if (e < 500) {
+            var v = 255;
+        } else if (e < 1500) {
+            var v = 255 * (1 - (e - 500) / 1000);
+        } else {
+            return false;
+        }
+        v = Number(Math.round(v)).toString(16);
+        if (v.length === 1) {
+            v = '0' + v;
+        }
+        var color = '#' + v + v + v;
+        var y = this.y;
+        for (var x = this.x; x <= this.x + 90; x+=90) {
+            context.beginPath();
+            context.strokeStyle = color;
+            context.lineTo(x + 5, y);
+            context.lineTo(x + 35, y);
+            context.quadraticCurveTo(x + 40, y, x + 40, y + 5);
+            context.lineTo(x + 40, y + 35);
+            context.quadraticCurveTo(x + 40, y + 40, x + 35, y + 40);
+            context.lineTo(x + 5, y + 40);
+            context.quadraticCurveTo(x, y + 40, x, y + 35);
+            context.lineTo(x, y + 5);
+            context.quadraticCurveTo(x, y, x + 5, y);
+            context.stroke();
+        }
+
+        context.beginPath();
+        context.strokeStyle = color;
+        context.fillStyle = color;
+        context.arc(this.x + 55, this.y + 20, 2, 0, Math.PI*2);
+        context.arc(this.x + 65, this.y + 20, 2, 0, Math.PI*2);
+        context.arc(this.x + 75, this.y + 20, 2, 0, Math.PI*2);
+        context.fill();
+
+        context.textBaseline = 'top';
+        context.font = '12pt Helvetica';
+        context.fillText('3', this.x + 15, this.y + 10);
+        context.fillText('9', this.x + 105, this.y + 10);
+
+        return true;
+    }
+
+    var toolTip = null;
 
     function Scene2D(canvas) {
         this.canvas = canvas;
@@ -25,7 +72,7 @@ define(['jquery', 'Matrix2D'], function($, Matrix2D) {
         this.context = canvas.getContext('2d');
         this.sceneWidth = canvas.width;
         this.sceneHeight = canvas.height;
-        this.clipLeft = -this.sceneWidth*0.5 + toolbarWidth;
+        this.clipLeft = -this.sceneWidth*0.5;
         this.clipRight = this.sceneWidth*0.5;
         this.clipBottom = -this.sceneHeight*0.5;
         this.clipTop = this.sceneHeight*0.5;
@@ -89,17 +136,28 @@ define(['jquery', 'Matrix2D'], function($, Matrix2D) {
         this.context.fillStyle = '#000000';
         this.context.fillRect(0, 0, this.sceneWidth, this.sceneHeight);
         this.context.fillStyle = '#333333';
-        this.context.fillRect(0, 0, toolbarWidth, this.sceneHeight);
+        this.context.fillRect(0, this.sceneHeight - 30, this.sceneWidth, 30);
+        this.context.fillStyle = '#aaaaaa';
+        this.context.textBaseline = 'top';
+        this.context.font = '12pt Helvetica';
+        this.context.fillText('joshua.l.salisbury@gmail.com', this.sceneWidth - 250, this.sceneHeight - 25);
         if (drawText) {
             this.context.fillStyle = '#aaaaaa';
             this.context.textBaseline = 'top';
+            this.context.font = '12pt Helvetica';
             this.context.fillText('frame rate: ' + frameRate, 5, 5);
             this.context.fillText('collide rate: ' + collideRate, 5, 20);
             this.context.fillText('polys: ' + this.numPolyItems, 5, 35);
         }
 
         for (var i=0; i<this.numPolyItems; i++) {
-            this.polyItems[i].render(this);
+            this.polyItems[i].render();
+        }
+
+        if (toolTip !== null) {
+            if (toolTip.render(this.context) === false) {
+                toolTip = null;
+            }
         }
 
         //if (this.dragItem != null)
@@ -232,14 +290,14 @@ define(['jquery', 'Matrix2D'], function($, Matrix2D) {
     Scene2D.prototype.resize = function() {
         this.sceneWidth = this.canvas.width;
         this.sceneHeight = this.canvas.height;
-        this.clipLeft = -this.sceneWidth*0.5 + toolbarWidth;
+        this.clipLeft = -this.sceneWidth*0.5;
         this.clipRight = this.sceneWidth*0.5;
         this.clipBottom = -this.sceneHeight*0.5;
         this.clipTop = this.sceneHeight*0.5;
         this.matrixGood = false;
     }
 
-    function polyItem(scene, pIdx) {
+    function PolyItem(scene, pIdx) {
         this.scene = scene;
         this.pIdx = pIdx;
         this.p2Didx = [];
@@ -293,7 +351,7 @@ define(['jquery', 'Matrix2D'], function($, Matrix2D) {
     }
 
         // METHODS
-    polyItem.prototype.render = function() {
+    PolyItem.prototype.render = function() {
         var points = this.scene.pointsTransformed;
         var context = this.scene.context;
 
@@ -308,7 +366,7 @@ define(['jquery', 'Matrix2D'], function($, Matrix2D) {
         context.stroke();
     }
 
-    polyItem.prototype.constrain = function() {
+    PolyItem.prototype.constrain = function() {
         var points = this.scene.points;
         for (var i=0; i<this.edgeVecIdx.length/2; i++) {
             var vecH = i*2;
@@ -326,7 +384,7 @@ define(['jquery', 'Matrix2D'], function($, Matrix2D) {
         }
     }
 
-    polyItem.prototype.collidePoly = function(poly2) {
+    PolyItem.prototype.collidePoly = function(poly2) {
         var points = this.scene.points;
 
         var minOverlap = 1000;
@@ -436,7 +494,7 @@ define(['jquery', 'Matrix2D'], function($, Matrix2D) {
         return true;
     }
 
-    polyItem.prototype.snapPoly = function(poly2) {
+    PolyItem.prototype.snapPoly = function(poly2) {
         var points = this.scene.points;
         var pointsLast = this.scene.pointsLast;
         var pointsAccel = this.scene.pointsAccel;
@@ -484,7 +542,7 @@ define(['jquery', 'Matrix2D'], function($, Matrix2D) {
         return false;
     }
 
-    polyItem.prototype.pointIntersects = function(point) {
+    PolyItem.prototype.pointIntersects = function(point) {
         var points = this.scene.points;
 
         for (var i=0; i<this.p2Didx.length; i++) {
@@ -501,7 +559,7 @@ define(['jquery', 'Matrix2D'], function($, Matrix2D) {
     }
 
     // checks the cross product of the first two sides. this assumes a convex poly
-    polyItem.prototype.isInverted = function() {
+    PolyItem.prototype.isInverted = function() {
         var points = this.scene.points;
         var v1 = [points[this.p2Didx[1]] - points[this.p2Didx[0]], points[this.p2Didx[1]+1] - points[this.p2Didx[0]+1]];
         var v2 = [points[this.p2Didx[2]] - points[this.p2Didx[1]], points[this.p2Didx[2]+1] - points[this.p2Didx[1]+1]];
@@ -509,7 +567,7 @@ define(['jquery', 'Matrix2D'], function($, Matrix2D) {
     }
 
     // reverses the vertices' direction
-    polyItem.prototype.invert = function() {
+    PolyItem.prototype.invert = function() {
         var inverted = [];
         for (var i=this.p2Didx.length-1; i>=0; i--) {
             inverted[inverted.length] = this.p2Didx[i];
@@ -580,7 +638,7 @@ define(['jquery', 'Matrix2D'], function($, Matrix2D) {
         function genPoly(n, x, y) {
             var t = 2*Math.PI/n
             var sl = Math.sin(t/2);
-            var r = 35 / sl;
+            var r = 50 / sl;
 
             var p = [];
             for (var i=0; i<n; i++) {
@@ -599,7 +657,7 @@ define(['jquery', 'Matrix2D'], function($, Matrix2D) {
             for (var i = 0; i < p.length; i+=2) {
                 pIdx.push(scene.addPoint(p[i], p[i+1]));
             }
-            scene.addPolyItem(new polyItem(scene, pIdx));
+            scene.addPolyItem(new PolyItem(scene, pIdx));
         }
 
         function addRhombA() {
@@ -609,7 +667,7 @@ define(['jquery', 'Matrix2D'], function($, Matrix2D) {
             var p3 = scene.addPoint(px-l*Math.cos(Math.PI/10), py);
             var p4 = scene.addPoint(px, py-l*Math.sin(Math.PI/10));
 
-            scene.addPolyItem(new polyItem(scene, [p1,p2,p3,p4]));
+            scene.addPolyItem(new PolyItem(scene, [p1,p2,p3,p4]));
         }
 
         function addRhombB() {
@@ -619,7 +677,7 @@ define(['jquery', 'Matrix2D'], function($, Matrix2D) {
             var p3 = scene.addPoint(px-l*Math.cos(Math.PI/5), py);
             var p4 = scene.addPoint(px, py-l*Math.sin(Math.PI/5));
 
-            scene.addPolyItem(new polyItem(scene, [p1,p2,p3,p4]));
+            scene.addPolyItem(new PolyItem(scene, [p1,p2,p3,p4]));
         }
 
         //triItem = genPoly(3, 
@@ -753,6 +811,9 @@ define(['jquery', 'Matrix2D'], function($, Matrix2D) {
         });
 
         $('#baseCanvas').mousedown(function(event) {
+            if (scene.numPolyItems === 0) {
+                toolTip = new ToolTip(Date.now(), event.clientX - offset.left + 10, event.clientY + offset.top + 15);
+            }
             for (var i=0; i<scene.numPolyItems; i++) {
                 if (scene.polyItems[i].pointIntersects([px, py])) {
                     scene.dragItem = new dragItem(scene, [px, py], scene.polyItems[i].pIdx);
