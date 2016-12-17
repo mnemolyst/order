@@ -575,7 +575,7 @@ define(['jquery', 'Matrix2D'], function($, Matrix2D) {
         this.p2Didx = inverted;
     }
 
-    function dragItem(scene, dragP, pIdx) {
+    function DragItem(scene, dragP, pIdx) {
         this.scene = scene;
         this.dragP = dragP;
         this.pIdx = pIdx;
@@ -598,7 +598,7 @@ define(['jquery', 'Matrix2D'], function($, Matrix2D) {
     }
 
         // METHODS
-    dragItem.prototype.render = function() {
+    DragItem.prototype.render = function() {
         var points = this.scene.pointsTransformed;
         var context = this.scene.context;
         var dragPointTransformed = this.scene.matrix.transformArray(this.dragP);
@@ -612,7 +612,7 @@ define(['jquery', 'Matrix2D'], function($, Matrix2D) {
         context.stroke();
     }
 
-    dragItem.prototype.constrain = function() {
+    DragItem.prototype.constrain = function() {
         var points = this.scene.points;
         for (var i=0; i<this.p2Didx.length; i++) {
             var delta = [points[this.p2Didx[i]]-this.dragP[0],
@@ -623,6 +623,15 @@ define(['jquery', 'Matrix2D'], function($, Matrix2D) {
                 var del = diff*delta[j];
                 points[this.p2Didx[i]+j] -= del;
             }
+        }
+    }
+
+    function LongSegment(scene, pIdx) {
+        this.scene = scene;
+        this.pIdx = pIdx;
+        this.p2Didx = [];
+        for (var i=0; i<this.pIdx.length; i++) {
+            this.p2Didx[i] = 2 * this.pIdx[i];
         }
     }
 
@@ -816,7 +825,7 @@ define(['jquery', 'Matrix2D'], function($, Matrix2D) {
             }
             for (var i=0; i<scene.numPolyItems; i++) {
                 if (scene.polyItems[i].pointIntersects([px, py])) {
-                    scene.dragItem = new dragItem(scene, [px, py], scene.polyItems[i].pIdx);
+                    scene.dragItem = new DragItem(scene, [px, py], scene.polyItems[i].pIdx);
                     break;
                 }
             }
