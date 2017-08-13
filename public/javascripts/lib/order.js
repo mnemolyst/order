@@ -17,6 +17,8 @@ define(['jquery', 'Matrix2D'], function($, Matrix2D) {
         this.x = x;
         this.y = y;
     }
+
+    //[3] ... [9] help text
     ToolTip.prototype.render = function(context) {
         var e = Date.now() - this.t;
         if (e < 500) {
@@ -65,6 +67,9 @@ define(['jquery', 'Matrix2D'], function($, Matrix2D) {
 
     var toolTip = null;
 
+    /*******************************
+    /*  Scene2D
+    /******************************/
     function Scene2D(canvas) {
         this.canvas = canvas;
         this.matrix = new Matrix2D();
@@ -146,7 +151,7 @@ define(['jquery', 'Matrix2D'], function($, Matrix2D) {
             this.context.textBaseline = 'top';
             this.context.font = '12pt Helvetica';
             this.context.fillText('frame rate: ' + frameRate, 5, 5);
-            this.context.fillText('collide rate: ' + collideRate, 5, 20);
+            this.context.fillText('collide rate: ' + collideRate + ' / sec', 5, 20);
             this.context.fillText('polys: ' + this.numPolyItems, 5, 35);
         }
 
@@ -296,7 +301,13 @@ define(['jquery', 'Matrix2D'], function($, Matrix2D) {
         this.clipTop = this.sceneHeight*0.5;
         this.matrixGood = false;
     }
+    /*******************************
+    /*  END Scene2D
+    /******************************/
 
+    /*******************************
+    /*  PolyItem
+    /******************************/
     function PolyItem(scene, pIdx) {
         this.scene = scene;
         this.pIdx = pIdx;
@@ -574,7 +585,13 @@ define(['jquery', 'Matrix2D'], function($, Matrix2D) {
         }
         this.p2Didx = inverted;
     }
+    /*******************************
+    /*  END PolyItem
+    /******************************/
 
+    /*******************************
+    /*  DragItem
+    /******************************/
     function DragItem(scene, dragP, pIdx) {
         this.scene = scene;
         this.dragP = dragP;
@@ -625,6 +642,9 @@ define(['jquery', 'Matrix2D'], function($, Matrix2D) {
             }
         }
     }
+    /*******************************
+    /*  END DragItem
+    /******************************/
 
     function LongSegment(scene, pIdx) {
         this.scene = scene;
@@ -746,7 +766,10 @@ define(['jquery', 'Matrix2D'], function($, Matrix2D) {
                   break;
                 case 46:                                      //delete
                   break;
-                case 48: case 49: case 50:                    //'0'-'2'
+                case 48:                                      //'0'
+                  addPoly(10)
+                  break;
+                case 49: case 50:                             //'1'-'2'
                   break;
                 case 51: case 52: case 53: case 54: case 55: case 56: case 57: //'3'-'9'
                   addPoly(event.which - 48);
