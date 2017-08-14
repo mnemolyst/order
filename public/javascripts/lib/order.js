@@ -12,13 +12,13 @@ define(['jquery', 'Matrix2D'], function($, Matrix2D) {
         return [x[1]*y[2]-x[2]*y[1], x[2]*y[0]-x[0]*y[2], x[0]*y[1]-x[1]*y[0]];
     }
 
+    //[3] ... [9] help text
     function ToolTip(now, x, y) {
         this.t = now;
         this.x = x;
         this.y = y;
     }
 
-    //[3] ... [9] help text
     ToolTip.prototype.render = function(context) {
         var e = Date.now() - this.t;
         if (e < 500) {
@@ -655,6 +655,9 @@ define(['jquery', 'Matrix2D'], function($, Matrix2D) {
         }
     }
 
+    /*******************************
+    /*  MAIN
+    /******************************/
     $(document).ready(function($) {
         var canvas = $('#baseCanvas');
         var offset = canvas.offset();
@@ -663,6 +666,17 @@ define(['jquery', 'Matrix2D'], function($, Matrix2D) {
         var px = 0;
         var py = 0;
         var i;
+
+        var colorMap = {
+            10: '#ff0000', // red
+            9:  '#ff9d00', // orange
+            8:  '#fffb00', // yellow
+            7:  '#80ff00', // green
+            6:  '#00c8ff', // cyan
+            5:  '#0040ff', // blue
+            4:  '#8000ff', // indigo
+            3:  '#3100ff'  // fuscia
+        }
 
         function genPoly(n, x, y) {
             var t = 2*Math.PI/n
@@ -686,7 +700,9 @@ define(['jquery', 'Matrix2D'], function($, Matrix2D) {
             for (var i = 0; i < p.length; i+=2) {
                 pIdx.push(scene.addPoint(p[i], p[i+1]));
             }
-            scene.addPolyItem(new PolyItem(scene, pIdx));
+            var polyItem = new PolyItem(scene, pIdx);
+            polyItem.color = colorMap[n];
+            scene.addPolyItem(polyItem);
         }
 
         function addRhombA() {
