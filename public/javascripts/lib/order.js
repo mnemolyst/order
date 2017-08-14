@@ -142,10 +142,10 @@ define(['jquery', 'Matrix2D'], function($, Matrix2D) {
         this.context.fillRect(0, 0, this.sceneWidth, this.sceneHeight);
         this.context.fillStyle = '#333333';
         this.context.fillRect(0, this.sceneHeight - 30, this.sceneWidth, 30);
-        this.context.fillStyle = '#aaaaaa';
-        this.context.textBaseline = 'top';
-        this.context.font = '12pt Helvetica';
-        this.context.fillText('joshua.l.salisbury@gmail.com', this.sceneWidth - 250, this.sceneHeight - 25);
+        //this.context.fillStyle = '#aaaaaa';
+        //this.context.textBaseline = 'top';
+        //this.context.font = '12pt Helvetica';
+        //this.context.fillText('joshua.l.salisbury@gmail.com', this.sceneWidth - 250, this.sceneHeight - 25);
         if (drawText) {
             this.context.fillStyle = '#aaaaaa';
             this.context.textBaseline = 'top';
