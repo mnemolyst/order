@@ -368,6 +368,7 @@ define(['jquery', 'Matrix2D'], function($, Matrix2D) {
 
         context.beginPath();
         context.strokeStyle = this.color;
+        context.lineWidth = 3;
         //context.fillStyle = '#eeeeee';
         for (var i=0; i<this.p2Didx.length; i++) {
             context.lineTo(points[this.p2Didx[i]], this.scene.sceneHeight - points[this.p2Didx[i]+1]);
