@@ -675,7 +675,7 @@ define(['jquery', 'Matrix2D'], function($, Matrix2D) {
             6:  '#00c8ff', // cyan
             5:  '#0040ff', // blue
             4:  '#8000ff', // indigo
-            3:  '#3100ff'  // fuscia
+            3:  '#dd00ff'  // fuscia
         }
 
         function genPoly(n, x, y) {
