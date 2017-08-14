@@ -12,7 +12,7 @@ define(['jquery', 'Matrix2D'], function($, Matrix2D) {
         return [x[1]*y[2]-x[2]*y[1], x[2]*y[0]-x[0]*y[2], x[0]*y[1]-x[1]*y[0]];
     }
 
-    //[3] ... [9] help text
+    //[3] ... [0] help text
     function ToolTip(now, x, y) {
         this.t = now;
         this.x = x;
@@ -60,7 +60,7 @@ define(['jquery', 'Matrix2D'], function($, Matrix2D) {
         context.textBaseline = 'top';
         context.font = '12pt Helvetica';
         context.fillText('3', this.x + 15, this.y + 10);
-        context.fillText('9', this.x + 105, this.y + 10);
+        context.fillText('0', this.x + 105, this.y + 10);
 
         return true;
     }
@@ -140,8 +140,8 @@ define(['jquery', 'Matrix2D'], function($, Matrix2D) {
         this.context.save();
         this.context.fillStyle = '#000000';
         this.context.fillRect(0, 0, this.sceneWidth, this.sceneHeight);
-        this.context.fillStyle = '#333333';
-        this.context.fillRect(0, this.sceneHeight - 30, this.sceneWidth, 30);
+        //this.context.fillStyle = '#333333';
+        //this.context.fillRect(0, this.sceneHeight - 30, this.sceneWidth, 30);
         //this.context.fillStyle = '#aaaaaa';
         //this.context.textBaseline = 'top';
         //this.context.font = '12pt Helvetica';
