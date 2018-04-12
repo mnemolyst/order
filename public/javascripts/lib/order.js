@@ -1,15 +1,30 @@
 'use strict';
 
-let drawText = false;
-let renderInterval = 33; //milliseconds
-let gravity = false;
-let gravConst = 32.2 * 12 / 1000000 / 8.25; // ft/s^2 -> heads/ms^2 (1 head = 8.25 in)
-let frameRate = 0;
-let collisions = 0;
-let collideRate = 0;
-let pause = false;
+/*******************************
+/*  Palette
+/******************************/
+function Palette() {
+    this.width = 0;
+    this.handleWidth = 50;
+}
 
-//[3] ... [0] help text
+Palette.prototype.render = function(context) {
+    context.fillStyle = rgbaToHex(51, 51, 51, 128);
+    context.fillRect(0, 0, this.width, context.canvas.height);
+    context.fillStyle = rgbaToHex(102, 102, 102, 128);
+    context.fillRect(this.width, 0, this.handleWidth, context.canvas.height);
+}
+
+Palette.prototype.pointIntersectsHandle = function(point) {
+    // TODO return point[0] > 
+}
+/*******************************
+/*  END Palette
+/******************************/
+
+/*******************************
+/*  ToolTip
+/******************************/
 function ToolTip(now, x, y) {
     this.t = now;
     this.x = x;
@@ -62,8 +77,9 @@ ToolTip.prototype.render = function(context) {
 
     return true;
 }
-
-let toolTip = null;
+/*******************************
+/*  END ToolTip
+/******************************/
 
 /*******************************
 /*  Scene2D
@@ -155,6 +171,10 @@ Scene2D.prototype.render = function() {
 
     for (let i=0; i<this.numPolyItems; i++) {
         this.polyItems[i].render();
+    }
+
+    if (palette !== null) {
+        palette.render(this.context);
     }
 
     if (toolTip !== null) {
@@ -327,7 +347,6 @@ function PolyItem(scene, pIdx) {
     for (i=0; i<this.pIdx.length; i++) {
         this.p2Didx[i] = 2 * this.pIdx[i];
     }
-    this.sideLengths = [];
     this.invSideLengths = [];
     this.restLengths = [];
     this.restLengthsSq = [];
@@ -336,6 +355,7 @@ function PolyItem(scene, pIdx) {
     this.color = '#eeeeee';
 
     // INIT
+    let sideLengths = [];
     let points = this.scene.points;
     let minSelfProj = 0;
     let norm, proj;
@@ -344,8 +364,8 @@ function PolyItem(scene, pIdx) {
 
         // compute side lengths
         v = [points[this.p2Didx[si]]-points[this.p2Didx[i]], points[this.p2Didx[si]+1]-points[this.p2Didx[i]+1]];
-        this.sideLengths[i] = Math.sqrt(v[0]*v[0] + v[1]*v[1]);
-        this.invSideLengths[i] = 1.0 / this.sideLengths[i];
+        sideLengths[i] = Math.sqrt(v[0]*v[0] + v[1]*v[1]);
+        this.invSideLengths[i] = 1.0 / sideLengths[i];
 
         // constraint length pairs
         this.edgeVecIdx[this.edgeVecIdx.length] = this.p2Didx[i];
@@ -677,22 +697,40 @@ DragItem.prototype.constrain = function() {
 /*******************************
 /*  MAIN
 /******************************/
+let drawText = false;
+let renderInterval = 33; //milliseconds
+let gravity = false;
+let gravConst = 32.2 * 12 / 1000000 / 8.25; // ft/s^2 -> heads/ms^2 (1 head = 8.25 in)
+let frameRate = 0;
+let collisions = 0;
+let collideRate = 0;
+let pause = false;
+let toolTip = null;
 let baseCanvas = document.getElementById('baseCanvas');
 let scene = new Scene2D(baseCanvas);
+let palette = new Palette();
 let state = 'none';
 let px = 0;
 let py = 0;
-let i;
 
 let colorMap = {
-    10: '#ff0000', // red
-    9:  '#ff9d00', // orange
-    8:  '#fffb00', // yellow
-    7:  '#80ff00', // green
-    6:  '#00c8ff', // cyan
-    5:  '#0040ff', // blue
-    4:  '#8000ff', // indigo
-    3:  '#dd00ff'  // fuscia
+    10: [255, 0, 0],//'#ff0000', // red
+    9:  [255, 157, 0],//'#ff9d00', // orange
+    8:  [255, 251, 0],//'#fffb00', // yellow
+    7:  [128, 255, 0],//'#80ff00', // green
+    6:  [0, 200, 255],//'#00c8ff', // cyan
+    5:  [0, 64, 255],//'#0040ff', // blue
+    4:  [128, 0, 255],//'#8000ff', // indigo
+    3:  [221, 0, 255],//'#dd00ff'  // fuscia
+}
+
+function componentToHex(c) {
+    let hex = c.toString(16);
+    return hex.length===1 ? '0'+hex : hex;
+}
+
+function rgbaToHex(r, g, b, a=255) {
+    return '#' + componentToHex(r) + componentToHex(g) + componentToHex(b) + componentToHex(a);
 }
 
 function genPoly(n, x, y) {
@@ -701,11 +739,15 @@ function genPoly(n, x, y) {
     let r = 50 / sl;
 
     let p = [];
+    let minX = null, maxX = null;
     for (let i=0; i<n; i++) {
         p[2*i] = x + r * Math.cos(t/2 + i*t);
         p[2*i+1] = y + r * Math.sin(t/2 + i*t);
+        minX = (minX === null || p[2*i] < minX) ? p[2*i] : minX;
+        maxX = (maxX === null || p[2*i] > maxX) ? p[2*i] : maxX;
     }
 
+    console.log(maxX - minX);
     return p;
 }
 
@@ -718,7 +760,7 @@ function addPoly(n) {
         pIdx.push(scene.addPoint(p[i], p[i+1]));
     }
     let polyItem = new PolyItem(scene, pIdx);
-    polyItem.color = colorMap[n];
+    polyItem.color = rgbaToHex(...colorMap[n]);
     scene.addPolyItem(polyItem);
 }
 
