@@ -4,6 +4,8 @@ let canvas = document.getElementById('baseCanvas');
 let context = canvas.getContext('2d');
 
 let points = [];
+let points_last = [];
+let points_accel = [];
 let num_points = 0;
 let points_transformed = [];
 
@@ -36,13 +38,22 @@ let matrix = new Matrix2D();
 let matrix_good = false;
 
 let main_clipping_plane = make_clipping_plane(
-        -canvas.width * 0.5,
-        canvas.width * 0.5,
-        -canvas.height * 0.5,
-        canvas.height * 0.5
-        );
+    -canvas.width * 0.5,
+    canvas.width * 0.5,
+    -canvas.height * 0.5,
+    canvas.height * 0.5
+);
+
+let palette_clipping_plane = make_clipping_plane(
+    -canvas.width * 0.5,
+    -canvas.width * 0.5 + palette.width,
+    -canvas.height * 0.5,
+    canvas.height * 0.5
+);
+
 let clipping_planes = [
-    main_clipping_plane
+    main_clipping_plane,
+    palette_clipping_plane
 ];
 
 let draw_text = false;
@@ -201,18 +212,18 @@ function make_poly_item(p_idx) {
             }
 
             // Then check "that" poly's sides
-            for (i = 0; i < poly2.p_2d_idx.length; i++) {
-                j = (i + 1 < poly2.p_2d_idx.length) ? i + 1 : 0;
-                norm = [ // unit normal of i-th side
+            for (let i = 0; i < poly2.p_2d_idx.length; i++) {
+                let j = (i + 1 < poly2.p_2d_idx.length) ? i + 1 : 0;
+                let norm = [ // unit normal of i-th side
                     (points[poly2.p_2d_idx[j] + 1] - points[poly2.p_2d_idx[i] + 1]) * poly2.inv_side_lengths[i],
                     (points[poly2.p_2d_idx[i]]     - points[poly2.p_2d_idx[j]])     * poly2.inv_side_lengths[i]
                 ];
 
-                min21Proj = 0;
-                max21Proj = 0;
-                min21Projp = -1;
-                for (p = 0; p < this.p_2d_idx.length; p++) {
-                    proj = (points[this.p_2d_idx[p]] - points[poly2.p_2d_idx[i]]) * norm[0] + (points[this.p_2d_idx[p] + 1] - points[poly2.p_2d_idx[i] + 1]) * norm[1];
+                let min21Proj = 0;
+                let max21Proj = 0;
+                let min21Projp = -1;
+                for (let p = 0; p < this.p_2d_idx.length; p++) {
+                    let proj = (points[this.p_2d_idx[p]] - points[poly2.p_2d_idx[i]]) * norm[0] + (points[this.p_2d_idx[p] + 1] - points[poly2.p_2d_idx[i] + 1]) * norm[1];
                     if (proj < min21Proj) {
                         min21Proj = proj;
                         min21Projp = p;
@@ -224,10 +235,10 @@ function make_poly_item(p_idx) {
                     return false;
                 }
 
-                minProj = (-poly2.normal_depths[i] < min21Proj) ? -poly2.normal_depths[i] : min21Proj;
-                maxProj = (max21Proj > 0) ? max21Proj : 0;
+                let minProj = (-poly2.normal_depths[i] < min21Proj) ? -poly2.normal_depths[i] : min21Proj;
+                let maxProj = (max21Proj > 0) ? max21Proj : 0;
 
-                overlap = max21Proj - min21Proj + poly2.normal_depths[i] - maxProj + minProj;
+                let overlap = max21Proj - min21Proj + poly2.normal_depths[i] - maxProj + minProj;
                 if (overlap > 0) {
                     //alert(overlap);
                     if (overlap < minOverlap) {
@@ -243,12 +254,13 @@ function make_poly_item(p_idx) {
             }
 
             // Update points
+            let ijHitF;
             if (Math.abs(points[bestj] - points[besti]) > Math.abs(points[bestj + 1] - points[besti + 1])) {
-                let ijHitF = Math.abs(points[bestp] - points[besti]) / Math.abs(points[bestj] - points[besti]);
+                ijHitF = Math.abs(points[bestp] - points[besti]) / Math.abs(points[bestj] - points[besti]);
             } else {
-                let ijHitF = Math.abs(points[bestp + 1] - points[besti + 1]) / Math.abs(points[bestj + 1] - points[besti + 1]);
+                ijHitF = Math.abs(points[bestp + 1] - points[besti + 1]) / Math.abs(points[bestj + 1] - points[besti + 1]);
             }
-            let l = 1.0 / (ijHitF*ijHitF + (1 - ijHitF) * (1 - ijHitF));
+            let l = 1.0 / (ijHitF * ijHitF + (1 - ijHitF) * (1 - ijHitF));
             let iHitP = (1 - ijHitF) * l;
             let jHitP = ijHitF * l;
             let push = [bestNorm[0] * minOverlap * 0.5, bestNorm[1] * minOverlap * 0.5];
@@ -353,27 +365,27 @@ function make_poly_item(p_idx) {
 
 function make_clipping_plane(clip_left, clip_right, clip_bottom, clip_top) {
     return {
-        p_idx: [],
+        p_2d_idx: [],
         clip_left,
         clip_right,
         clip_bottom,
         clip_top,
         add_p_idx(idx) {
-            this.p_idx.push(idx);
+            this.p_2d_idx.push(idx * 2);
         },
         clip() {
-            for (let idx of this.p_idx) {
-                if (points[idx * 2] < this.clip_left) {
-                    points[idx * 2] = this.clip_left;
+            for (let idx of this.p_2d_idx) {
+                if (points[idx] < this.clip_left) {
+                    points[idx] = this.clip_left;
                 }
-                if (points[idx * 2] > this.clip_right) {
-                    points[idx * 2] = this.clip_right;
+                if (points[idx] > this.clip_right) {
+                    points[idx] = this.clip_right;
                 }
-                if (points[idx * 2 + 1] < this.clip_bottom) {
-                    points[idx * 2 + 1] = this.clip_bottom;
+                if (points[idx + 1] < this.clip_bottom) {
+                    points[idx + 1] = this.clip_bottom;
                 }
-                if (points[idx * 2 + 1] > this.clip_top) {
-                    points[idx * 2 + 1] = this.clip_top;
+                if (points[idx + 1] > this.clip_top) {
+                    points[idx + 1] = this.clip_top;
                 }
             }
         }
@@ -421,16 +433,16 @@ function verlet(time_del) {
         let y_idx = i2 + 1;
         let td2 = time_del * time_del;
 
-        let tempX = this.points[x_idx];
-        let tempY = this.points[y_idx];
+        let temp_x = points[x_idx];
+        let temp_y = points[y_idx];
 
-        //this.points[x_idx] += (this.points[x_idx]-this.pointsLast[x_idx])*0.99 + this.pointsAccel[x_idx]*timeDel*timeDel;
-        //this.points[y_idx] += (this.points[y_idx]-this.pointsLast[y_idx])*0.99 + this.pointsAccel[y_idx]*timeDel*timeDel;
-        this.points[x_idx] += this.points[x_idx] - this.pointsLast[x_idx] + this.pointsAccel[x_idx] * td2;
-        this.points[y_idx] += this.points[y_idx] - this.pointsLast[y_idx] + this.pointsAccel[y_idx] * td2;
+        //points[x_idx] += (points[x_idx]-pointsLast[x_idx])*0.99 + pointsAccel[x_idx]*timeDel*timeDel;
+        //points[y_idx] += (points[y_idx]-pointsLast[y_idx])*0.99 + pointsAccel[y_idx]*timeDel*timeDel;
+        points[x_idx] += points[x_idx] - points_last[x_idx] + points_accel[x_idx] * td2;
+        points[y_idx] += points[y_idx] - points_last[y_idx] + points_accel[y_idx] * td2;
 
-        this.pointsLast[x_idx] = tempX;
-        this.pointsLast[y_idx] = tempY;
+        points_last[x_idx] = temp_x;
+        points_last[y_idx] = temp_y;
     }
 }
 
@@ -460,16 +472,23 @@ function collide_polys() {
 
 function clip() {
     for (let plane of clipping_planes) {
+        plane.clip();
     }
 }
 
 function safe_actions() {
     if (delete_drag) {
-        if (drag_item) {
-            poly_items[drag_item.poly_item_idx].interacting = true;
+        if (drag_item !== null) {
+            drag_item.poly_item.interacting = true;
             drag_item = null;
         }
-        this.delete_drag = false;
+        delete_drag = false;
+    }
+
+    for (let item of poly_items) {
+        if (item.is_inverted()) {
+            item.invert();
+        }
     }
 }
 
@@ -527,6 +546,8 @@ function make_regular_poly_coords(n, x, y) {
 
 function add_point(x, y) {
     points.push(x, y);
+    points_last.push(x, y);
+    points_accel.push(0, 0);
     return num_points++;
 }
 
@@ -534,13 +555,52 @@ function add_regular_poly(n, clipping_plane) {
     let p = make_regular_poly_coords(n, px, py);
     let p_idx = [];
     for (let i = 0; i < p.length; i += 2) {
-        idx = add_point(p[i], p[i + 1]);
+        let idx = add_point(p[i], p[i + 1]);
         p_idx.push(idx);
-        clipping_plane.add_p_idx(idx);
+        palette_clipping_plane.add_p_idx(idx);
     }
     let poly_item = make_poly_item(p_idx);
     poly_item.color = rgba_to_hex(...color_map[n]);
     poly_items.push(poly_item);
+}
+
+function make_drag_item(x, y, poly_item) {
+    let rest_lengths_sq = [];
+    let p_2d_idx = poly_item.p_2d_idx;
+    for (let idx of p_2d_idx) {
+        let v = [
+            points[idx] - x,
+            points[idx + 1] - y
+        ];
+        rest_lengths_sq.push(v[0] * v[0] + v[1] * v[1]);
+    }
+    return {
+        x,
+        y,
+        p_2d_idx,
+        poly_item,
+        rest_lengths_sq,
+        constrain() {
+            for (let i = 0; i < this.p_2d_idx.length; i++) {
+                let delta = [
+                    points[this.p_2d_idx[i]] - this.x,
+                    points[this.p_2d_idx[i] + 1] - this.y
+                ];
+                let del_sq = delta[0] * delta[0] + delta[1] * delta[1];
+                let diff = (del_sq - this.rest_lengths_sq[i]) / (del_sq + this.rest_lengths_sq[i]);
+                for (let j = 0; j < 2; j++) {
+                    let del = diff * delta[j];
+                    points[this.p_2d_idx[i] + j] -= del;
+                }
+            }
+        }
+    };
+}
+
+function make_palette_grip(rel_x) {
+    return {
+        rel_x
+    };
 }
 
 document.addEventListener("keydown", function(event) {
@@ -655,14 +715,14 @@ document.addEventListener("keydown", function(event) {
 });
 
 canvas.addEventListener('mousedown', function(event) {
-    if (palette.doesHandleIntersect([event.clientX, event.clientY])) {
-        let relP = palette.getHandlePoint([event.clientX, event.clientY]);
-        paletteGrip = new PaletteGrip(relP[0]);
+    if (palette.does_handle_intersect([event.clientX, event.clientY])) {
+        let rel_p = palette.get_handle_point([event.clientX, event.clientY]);
+        palette.grip = make_palette_grip(rel_p[0]);
     } else {
-        for (let i=0; i<scene.polyItems.length; i++) {
-            if (scene.polyItems[i].pointIntersects([px, py])) {
-                scene.polyItems[i].interacting = false;
-                dragItem = new DragItem(scene, [px, py], i);
+        for (let item of poly_items) {
+            if (item.point_intersects([px, py])) {
+                item.interacting = false;
+                drag_item = make_drag_item(px, py, item);
                 break;
             }
         }
@@ -674,25 +734,31 @@ canvas.addEventListener('mousemove', function(event) {
     px = -canvas_bound.width * 0.5 + event.clientX - canvas_bound.left;
     py = canvas_bound.height * 0.5 - event.clientY + canvas_bound.top;
 
-    if (paletteGrip !== null) {
-        palette.width = event.clientX - paletteGrip.relX;
-    } else if (dragItem !== null) {
-        dragItem.dragP = [px, py];
+    if (palette.grip !== null) {
+        palette.width = event.clientX - palette.grip.rel_x;
+        palette_clipping_plane.clip_right = -canvas.width * 0.5 + palette.width;
+    } else if (drag_item !== null) {
+        drag_item.x = px;
+        drag_item.y = py;
     }
 });
 
 canvas.addEventListener('mouseup', function(event) {
-    paletteGrip = null;
-    scene.deleteDrag = true;
+    palette.grip = null;
+    delete_drag = true;
 });
 
 window.onresize = function() {
     canvas.width = window.innerWidth;
     canvas.height = window.innerHeight;
-    main_clipping_plane.clip_left = -canvas.width*0.5;
-    main_clipping_plane.clip_right = canvas.width*0.5;
-    main_clipping_plane.clip_bottom = -canvas.height*0.5;
-    main_clipping_plane.clip_top = canvas.height*0.5;
+    main_clipping_plane.clip_left = -canvas.width * 0.5;
+    main_clipping_plane.clip_right = canvas.width * 0.5;
+    main_clipping_plane.clip_bottom = -canvas.height * 0.5;
+    main_clipping_plane.clip_top = canvas.height * 0.5;
+    palette_clipping_plane.clip_left = -canvas.width * 0.5;
+    palette_clipping_plane.clip_right = -canvas.width * 0.5 + palette.width;
+    palette_clipping_plane.clip_bottom = -canvas.height * 0.5;
+    palette_clipping_plane.clip_top = canvas.height * 0.5;
     matrix_good = false;
 }
 
