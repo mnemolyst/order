@@ -8,18 +8,32 @@ function Palette() {
     this.handleWidth = 50;
 }
 
-Palette.prototype.render = function(context) {
+Palette.prototype.render = function() {
     context.fillStyle = rgbaToHex(51, 51, 51, 128);
     context.fillRect(0, 0, this.width, context.canvas.height);
     context.fillStyle = rgbaToHex(102, 102, 102, 128);
     context.fillRect(this.width, 0, this.handleWidth, context.canvas.height);
 }
 
-Palette.prototype.pointIntersectsHandle = function(point) {
-    // TODO return point[0] > 
+Palette.prototype.doesHandleIntersect = function(point) {
+    return point[0] > this.width && point[0] < (this.width + this.handleWidth);
+}
+
+Palette.prototype.getHandlePoint = function(point) {
+    return [point[0] - this.width, point[1]];
 }
 /*******************************
 /*  END Palette
+/******************************/
+
+/*******************************
+/*  PaletteGrip
+/******************************/
+function PaletteGrip(relX) {
+    this.relX = relX;
+}
+/*******************************
+/*  END PaletteGrip
 /******************************/
 
 /*******************************
@@ -31,7 +45,7 @@ function ToolTip(now, x, y) {
     this.y = y;
 }
 
-ToolTip.prototype.render = function(context) {
+ToolTip.prototype.render = function() {
     let e = Date.now() - this.t;
     let v;
     if (e < 500) {
@@ -82,19 +96,54 @@ ToolTip.prototype.render = function(context) {
 /******************************/
 
 /*******************************
+/*  ClippingPlane
+/******************************/
+function MakeClippingPlane(clipLeft, clipRight, clipBottom, clipTop) {
+    this.clipLeft = clipLeft;
+    this.clipRight = clipRight;
+    this.clipBottom = clipBottom;
+    this.clipTop = clipTop;
+
+    return {
+        pIdx: [],
+        clipLeft,
+        clipRight,
+        clipBottom,
+        clipTop,
+        addPIdx(idx) {
+        },
+        clip() {
+            for (let i=0; i<this.numPoints; i++) {
+                if (this.points[i*2] < this.clipLeft) {
+                    this.points[i*2] = this.clipLeft;
+                }
+                if (this.clipRight < this.points[i*2]) {
+                    this.points[i*2] = this.clipRight;
+                }
+                if (this.points[i*2+1] < this.clipBottom) {
+                    this.points[i*2+1] = this.clipBottom;
+                }
+                if (this.clipTop < this.points[i*2+1]) {
+                    this.points[i*2+1] = this.clipTop;
+                }
+            }
+        }
+    };
+}
+/*******************************
+/*  END ClippingPlane
+/******************************/
+
+/*******************************
 /*  Scene2D
 /******************************/
-function Scene2D(canvas) {
-    this.canvas = canvas;
+function Scene2D() {
     this.matrix = new Matrix2D();
     this.matrixGood = false;
-    this.context = canvas.getContext('2d');
-    this.sceneWidth = canvas.width;
-    this.sceneHeight = canvas.height;
-    this.clipLeft = -this.sceneWidth*0.5;
-    this.clipRight = this.sceneWidth*0.5;
-    this.clipBottom = -this.sceneHeight*0.5;
-    this.clipTop = this.sceneHeight*0.5;
+    this.clipLeft = -canvas.width*0.5;
+    this.clipRight = canvas.width*0.5;
+    this.clipBottom = -canvas.height*0.5;
+    this.clipTop = canvas.height*0.5;
     this.panX = 0;
     this.panY = 0;
     this.scale = 1.0;
@@ -103,43 +152,34 @@ function Scene2D(canvas) {
     this.pointsTransformed = [];
     this.pointsLast = [];
     this.pointsAccel = [];
-    this.pointsInvMass = [];
+    //this.pointsInvMass = [];
     this.numPoints = 0;
     this.polyItems = [];
     this.numPolyItems = 0;
     this.constraints = [];
     this.numConstraints = 0;
-    this.dragItem = null;
     this.deleteDrag = false;
 }
 
 Scene2D.prototype.addPoint = function(x, y) {
-    this.points[this.points.length] = this.pointsLast[this.pointsLast.length] = x;
-    this.points[this.points.length] = this.pointsLast[this.pointsLast.length] = y;
-    this.pointsAccel[this.pointsAccel.length] = 0;
-    this.pointsAccel[this.pointsAccel.length] = 0;
-    this.pointsInvMass[this.pointsInvMass.length] = 1;
+    this.points.push(x, y);
+    this.pointsLast.push(x, y);
+    this.pointsAccel.push(0, 0);
+    //this.pointsInvMass.push(1);
 
     return this.numPoints++;
 }
 
-Scene2D.prototype.getPoint = function(idx) {
-    let idx2D = idx*2;
-    return [this.points[idx2D], this.points[idx2D+1]];
-}
-
 Scene2D.prototype.addPolyItem = function(item) {
-    this.polyItems[this.polyItems.length] = item;
-
-    return this.numPolyItems++;
+    this.polyItems.push(item);
 }
 
 Scene2D.prototype.makeSnapCurve = function(n, ll, ul) {
 }
 
 Scene2D.prototype.render = function() {
-    let halfWidth = this.sceneWidth*0.5;
-    let halfHeight = this.sceneHeight*0.5;
+    let halfWidth = canvas.width*0.5;
+    let halfHeight = canvas.height*0.5;
 
     if (!this.matrixGood) {
         this.matrix.identity();
@@ -151,43 +191,43 @@ Scene2D.prototype.render = function() {
 
     this.pointsTransformed = this.matrix.transformArray(this.points);
 
-    this.context.save();
-    this.context.fillStyle = '#000000';
-    this.context.fillRect(0, 0, this.sceneWidth, this.sceneHeight);
-    //this.context.fillStyle = '#333333';
-    //this.context.fillRect(0, this.sceneHeight - 30, this.sceneWidth, 30);
-    //this.context.fillStyle = '#aaaaaa';
-    //this.context.textBaseline = 'top';
-    //this.context.font = '12pt Helvetica';
-    //this.context.fillText('joshua.l.salisbury@gmail.com', this.sceneWidth - 250, this.sceneHeight - 25);
+    context.save();
+    context.fillStyle = '#000000';
+    context.fillRect(0, 0, canvas.width, canvas.height);
+    //context.fillStyle = '#333333';
+    //context.fillRect(0, canvas.height - 30, canvas.width, 30);
+    //context.fillStyle = '#aaaaaa';
+    //context.textBaseline = 'top';
+    //context.font = '12pt Helvetica';
+    //context.fillText('joshua.l.salisbury@gmail.com', canvas.width - 250, canvas.height - 25);
     if (drawText) {
-        this.context.fillStyle = '#aaaaaa';
-        this.context.textBaseline = 'top';
-        this.context.font = '12pt Helvetica';
-        this.context.fillText('frame rate: ' + frameRate, 5, 5);
-        this.context.fillText('collide rate: ' + collideRate + ' / sec', 5, 20);
-        this.context.fillText('polys: ' + this.numPolyItems, 5, 35);
+        context.fillStyle = '#aaaaaa';
+        context.textBaseline = 'top';
+        context.font = '12pt Helvetica';
+        context.fillText('frame rate: ' + frameRate, 5, 5);
+        context.fillText('collide rate: ' + collideRate + ' / sec', 5, 20);
+        context.fillText('polys: ' + this.polyItems.length, 5, 35);
     }
 
-    for (let i=0; i<this.numPolyItems; i++) {
+    for (let i=0; i<this.polyItems.length; i++) {
         this.polyItems[i].render();
     }
 
     if (palette !== null) {
-        palette.render(this.context);
+        palette.render(context);
     }
 
     if (toolTip !== null) {
-        if (toolTip.render(this.context) === false) {
+        if (toolTip.render(context) === false) {
             toolTip = null;
         }
     }
 
-    //if (this.dragItem != null) {
-    //    this.dragItem.render(this);
+    //if (dragItem != null) {
+    //    dragItem.render(this);
     //}
 
-    this.context.restore();
+    context.restore();
 }
 
 Scene2D.prototype.accumulateForces = function() {
@@ -226,42 +266,23 @@ Scene2D.prototype.verlet = function(timeDel) {
 }
 
 Scene2D.prototype.constrain = function() {
-    for (let i=0; i<this.numPolyItems; i++) {
+    for (let i=0; i<this.polyItems.length; i++) {
         this.polyItems[i].constrain();
     }
-    if (this.dragItem != null) {
-        this.dragItem.constrain();
-    }
-}
-
-Scene2D.prototype.clip = function() {
-    let temp = 0;
-    for (let i=0; i<this.numPoints; i++) {
-        if (this.points[i*2] < this.clipLeft) {
-            this.points[i*2] = this.clipLeft;
-        }
-        if (this.clipRight < this.points[i*2]) {
-            this.points[i*2] = this.clipRight;
-        }
-        if (this.points[i*2+1] < this.clipBottom) {
-            this.points[i*2+1] = this.clipBottom;
-        }
-        if (this.clipTop < this.points[i*2+1]) {
-            this.points[i*2+1] = this.clipTop;
-        }
+    if (dragItem != null) {
+        dragItem.constrain();
     }
 }
 
 Scene2D.prototype.collidePolys = function() {
-    //for (let i=0; i<this.numPolyItems; i++) {
+    //for (let i=0; i<this.polyItems.length; i++) {
     //  this.polyItems[i].color = '#eeeeee';
     //}
-    let collision;
 
-    for (let i=0; i<this.numPolyItems; i++) {
-        for (let j=i+1; j<this.numPolyItems; j++) {
+    for (let i=0; i<this.polyItems.length; i++) {
+        for (let j=i+1; j<this.polyItems.length; j++) {
             if (this.polyItems[i].interacting && this.polyItems[j].interacting) {
-                collision = this.polyItems[i].collidePoly(this.polyItems[j]);
+                let collision = this.polyItems[i].collidePoly(this.polyItems[j]);
                 if (collision) {
                     collisions++;
                 }
@@ -273,11 +294,11 @@ Scene2D.prototype.collidePolys = function() {
 }
 
 Scene2D.prototype.snapPolys = function() {
-    //for (let i=0; i<this.numPolyItems; i++) {
+    //for (let i=0; i<this.polyItems.length; i++) {
     //  this.polyItems[i].color = '#eeeeee';
     //}
-    for (let i=0; i<this.numPolyItems; i++) {
-        for (let j=i+1; j<this.numPolyItems; j++) {
+    for (let i=0; i<this.polyItems.length; i++) {
+        for (let j=i+1; j<this.polyItems.length; j++) {
             this.polyItems[i].snapPoly(this.polyItems[j]);
             //if (this.polyItems[i].snapPoly(this.polyItems[j])) {
             //  this.polyItems[i].color = '#ee0000';
@@ -288,7 +309,7 @@ Scene2D.prototype.snapPolys = function() {
 }
 
 Scene2D.prototype.fixPolys = function() {
-    for (let i=0; i<this.numPolyItems; i++) {
+    for (let i=0; i<this.polyItems.length; i++) {
         if (this.polyItems[i].isInverted()) {
             this.polyItems[i].invert();
         }
@@ -297,9 +318,9 @@ Scene2D.prototype.fixPolys = function() {
 
 Scene2D.prototype.safeActions = function() {
     if (this.deleteDrag) {
-        if (this.dragItem) {
-            this.polyItems[this.dragItem.polyItemIdx].interacting = true;
-            this.dragItem = null;
+        if (dragItem) {
+            this.polyItems[dragItem.polyItemIdx].interacting = true;
+            dragItem = null;
         }
         this.deleteDrag = false;
     }
@@ -321,12 +342,10 @@ Scene2D.prototype.tic = function() {
 }
 
 Scene2D.prototype.resize = function() {
-    this.sceneWidth = this.canvas.width;
-    this.sceneHeight = this.canvas.height;
-    this.clipLeft = -this.sceneWidth*0.5;
-    this.clipRight = this.sceneWidth*0.5;
-    this.clipBottom = -this.sceneHeight*0.5;
-    this.clipTop = this.sceneHeight*0.5;
+    this.clipLeft = -canvas.width*0.5;
+    this.clipRight = canvas.width*0.5;
+    this.clipBottom = -canvas.height*0.5;
+    this.clipTop = canvas.height*0.5;
     this.matrixGood = false;
 }
 /*******************************
@@ -342,9 +361,7 @@ function PolyItem(scene, pIdx) {
     this.p2Didx = [];
     this.interacting = true;
 
-    let i, j, n, v;
-
-    for (i=0; i<this.pIdx.length; i++) {
+    for (let i=0; i<this.pIdx.length; i++) {
         this.p2Didx[i] = 2 * this.pIdx[i];
     }
     this.invSideLengths = [];
@@ -358,37 +375,39 @@ function PolyItem(scene, pIdx) {
     let sideLengths = [];
     let points = this.scene.points;
     let minSelfProj = 0;
-    let norm, proj;
-    for (i=0; i<this.p2Didx.length; i++) {
+    for (let i=0; i<this.p2Didx.length; i++) {
         let si = (i+1<this.p2Didx.length)?i+1:0; // successor of i
 
         // compute side lengths
-        v = [points[this.p2Didx[si]]-points[this.p2Didx[i]], points[this.p2Didx[si]+1]-points[this.p2Didx[i]+1]];
+        let v = [
+            points[this.p2Didx[si]]-points[this.p2Didx[i]],
+            points[this.p2Didx[si]+1]-points[this.p2Didx[i]+1]
+        ];
         sideLengths[i] = Math.sqrt(v[0]*v[0] + v[1]*v[1]);
         this.invSideLengths[i] = 1.0 / sideLengths[i];
 
         // constraint length pairs
         this.edgeVecIdx[this.edgeVecIdx.length] = this.p2Didx[i];
         this.edgeVecIdx[this.edgeVecIdx.length] = this.p2Didx[si];
-        n = this.p2Didx.length-3-(i>1?i-1:0);
+        let n = this.p2Didx.length-3-(i>1?i-1:0);
         for (let j=i+2; j<i+n+2; j++) {
             this.edgeVecIdx[this.edgeVecIdx.length] = this.p2Didx[i];
             this.edgeVecIdx[this.edgeVecIdx.length] = this.p2Didx[j];
         }
 
         // depth from each face
-        norm = [(points[this.p2Didx[si]+1]-points[this.p2Didx[i]+1])*this.invSideLengths[i], // right-hand unit normal of i-th side
+        let norm = [(points[this.p2Didx[si]+1]-points[this.p2Didx[i]+1])*this.invSideLengths[i], // right-hand unit normal of i-th side
                     (points[this.p2Didx[i]]-points[this.p2Didx[si]])*this.invSideLengths[i]];
         this.normalDepths[i] = 0;
-        for (j=0; j<this.p2Didx.length; j++) {
-            proj = (points[this.p2Didx[j]]-points[this.p2Didx[i]])*norm[0] + (points[this.p2Didx[j]+1]-points[this.p2Didx[i]+1])*norm[1];
+        for (let j=0; j<this.p2Didx.length; j++) {
+            let proj = (points[this.p2Didx[j]]-points[this.p2Didx[i]])*norm[0] + (points[this.p2Didx[j]+1]-points[this.p2Didx[i]+1])*norm[1];
             this.normalDepths[i] = (this.normalDepths[i] < -proj)?-proj:this.normalDepths[i];
         }
     }
 
     // constraint rest lengths
-    for (i=0; i<this.edgeVecIdx.length/2; i++) {
-        v = [points[this.edgeVecIdx[i*2+1]]-points[this.edgeVecIdx[i*2]], points[this.edgeVecIdx[i*2+1]+1]-points[this.edgeVecIdx[i*2]+1]];
+    for (let i=0; i<this.edgeVecIdx.length/2; i++) {
+        let v = [points[this.edgeVecIdx[i*2+1]]-points[this.edgeVecIdx[i*2]], points[this.edgeVecIdx[i*2+1]+1]-points[this.edgeVecIdx[i*2]+1]];
         this.restLengths[i] = Math.sqrt(v[0]*v[0] + v[1]*v[1]);
         this.restLengthsSq[i] = this.restLengths[i]*this.restLengths[i];
     }
@@ -396,17 +415,16 @@ function PolyItem(scene, pIdx) {
 
 PolyItem.prototype.render = function() {
     let points = this.scene.pointsTransformed;
-    let context = this.scene.context;
 
     context.beginPath();
     context.strokeStyle = this.color;
     context.lineWidth = 3;
     //context.fillStyle = '#eeeeee';
     for (let i=0; i<this.p2Didx.length; i++) {
-        context.lineTo(points[this.p2Didx[i]], this.scene.sceneHeight - points[this.p2Didx[i]+1]);
-        //context.fillText(i, points[this.p2Didx[i]], this.scene.sceneHeight - points[this.p2Didx[i]+1]);
+        context.lineTo(points[this.p2Didx[i]], canvas.height - points[this.p2Didx[i]+1]);
+        //context.fillText(i, points[this.p2Didx[i]], canvas.height - points[this.p2Didx[i]+1]);
     }
-    context.lineTo(points[this.p2Didx[0]], this.scene.sceneHeight - points[this.p2Didx[0]+1]); // close the polygon
+    context.lineTo(points[this.p2Didx[0]], canvas.height - points[this.p2Didx[0]+1]); // close the polygon
     context.stroke();
 }
 
@@ -421,7 +439,8 @@ PolyItem.prototype.constrain = function() {
         delSq = delta[0]*delta[0] + delta[1]*delta[1];
         im1 = 1;//this.scene.pointsInvMass[this.edgeVecIdx[vecH]/2];
         im2 = 1;//this.scene.pointsInvMass[this.edgeVecIdx[vecH+1]/2];
-        diff = (delSq-this.restLengthsSq[i])/((delSq+this.restLengthsSq[i])*(im1+im2)*2);
+        //diff = (delSq-this.restLengthsSq[i])/((delSq+this.restLengthsSq[i])*(im1+im2)*2);
+        diff = (delSq-this.restLengthsSq[i])/((delSq+this.restLengthsSq[i])*4);
         for (j=0; j<2; j++) {
             del = diff*delta[j];
             points[this.edgeVecIdx[vecH]+j]   += del*im1;
@@ -662,14 +681,13 @@ function DragItem(scene, dragP, polyItemIdx) {
 
 DragItem.prototype.render = function() {
     let points = this.scene.pointsTransformed;
-    let context = this.scene.context;
     let dragPointTransformed = this.scene.matrix.transformArray(this.dragP);
 
     context.beginPath();
     context.strokeStyle = this.color;
     for (let i=0; i<this.p2Didx.length; i++) {
-        context.moveTo(dragPointTransformed[0], this.scene.sceneHeight - dragPointTransformed[1]);
-        context.lineTo(points[this.p2Didx[i]], this.scene.sceneHeight - points[this.p2Didx[i]+1]);
+        context.moveTo(dragPointTransformed[0], canvas.height - dragPointTransformed[1]);
+        context.lineTo(points[this.p2Didx[i]], canvas.height - points[this.p2Didx[i]+1]);
     }
     context.stroke();
 }
@@ -697,6 +715,7 @@ DragItem.prototype.constrain = function() {
 /*******************************
 /*  MAIN
 /******************************/
+let points = [];
 let drawText = false;
 let renderInterval = 33; //milliseconds
 let gravity = false;
@@ -706,12 +725,17 @@ let collisions = 0;
 let collideRate = 0;
 let pause = false;
 let toolTip = null;
-let baseCanvas = document.getElementById('baseCanvas');
-let scene = new Scene2D(baseCanvas);
+let dragItem = null;
+let canvas = document.getElementById('baseCanvas');
+let context = canvas.getContext('2d');
 let palette = new Palette();
+let paletteGrip = null;
 let state = 'none';
 let px = 0;
 let py = 0;
+
+let scene = new Scene2D();
+clipsPolys(scene);
 
 let colorMap = {
     10: [255, 0, 0],//'#ff0000', // red
@@ -752,8 +776,8 @@ function genPoly(n, x, y) {
 }
 
 function addPoly(n) {
-    //let x = Math.random() * baseCanvas.width() - baseCanvas.width()/2;
-    //let y = Math.random() * baseCanvas.height() - baseCanvas.height()/2;
+    //let x = Math.random() * canvas.width() - canvas.width()/2;
+    //let y = Math.random() * canvas.height() - canvas.height()/2;
     let p = genPoly(n, px, py);
     let pIdx = [];
     for (let i = 0; i < p.length; i+=2) {
@@ -782,6 +806,74 @@ function addRhombB() {
     let p4 = scene.addPoint(px, py-l*Math.sin(Math.PI/5));
 
     scene.addPolyItem(new PolyItem(scene, [p1,p2,p3,p4]));
+}
+
+function clipsPolys(obj) {
+    Object.assign(obj, {
+        clip() {
+            for (let i=0; i<this.numPoints; i++) {
+                if (this.points[i*2] < this.clipLeft) {
+                    this.points[i*2] = this.clipLeft;
+                }
+                if (this.clipRight < this.points[i*2]) {
+                    this.points[i*2] = this.clipRight;
+                }
+                if (this.points[i*2+1] < this.clipBottom) {
+                    this.points[i*2+1] = this.clipBottom;
+                }
+                if (this.clipTop < this.points[i*2+1]) {
+                    this.points[i*2+1] = this.clipTop;
+                }
+            }
+        }
+    });
+}
+
+function containsPolys(obj) {
+    Object.assign(obj, {
+        clip() {
+            for (let i=0; i<this.numPoints; i++) {
+                if (this.points[i*2] < this.clipLeft) {
+                    this.points[i*2] = this.clipLeft;
+                }
+                if (this.clipRight < this.points[i*2]) {
+                    this.points[i*2] = this.clipRight;
+                }
+                if (this.points[i*2+1] < this.clipBottom) {
+                    this.points[i*2+1] = this.clipBottom;
+                }
+                if (this.clipTop < this.points[i*2+1]) {
+                    this.points[i*2+1] = this.clipTop;
+                }
+            }
+        },
+        addRegPoly(n, x, y) {
+            let t = 2*Math.PI/n
+            let sl = Math.sin(t/2);
+            let r = 50 / sl;
+
+            let p = [];
+            let minX = null, maxX = null;
+            for (let i=0; i<n; i++) {
+                p[2*i] = x + r * Math.cos(t/2 + i*t);
+                p[2*i+1] = y + r * Math.sin(t/2 + i*t);
+                minX = (minX === null || p[2*i] < minX) ? p[2*i] : minX;
+                maxX = (maxX === null || p[2*i] > maxX) ? p[2*i] : maxX;
+            }
+
+            console.log(maxX - minX);
+
+            let pIdx = [];
+            for (let i = 0; i < p.length; i+=2) {
+                pIdx.push(scene.addPoint(p[i], p[i+1]));
+            }
+
+            let polyItem = new PolyItem(this, pIdx);
+            polyItem.color = rgbaToHex(...colorMap[n]);
+
+            this.polyItems.push(polyItem);
+        }
+    });
 }
 
 let frames=0;
@@ -884,7 +976,6 @@ document.addEventListener("keydown", function(event) {
         case 83:                                      //'s'
           break;
         case 85:                                      //'u'
-          scene.zTranslate -= 0.2;
           break;
         case 86:                                      //'v'
           break;
@@ -910,36 +1001,46 @@ document.addEventListener("keydown", function(event) {
     }
 });
 
-baseCanvas.addEventListener('mousedown', function(event) {
-    if (scene.numPolyItems === 0) {
-        let canvasBound = baseCanvas.getBoundingClientRect();
+canvas.addEventListener('mousedown', function(event) {
+    if (scene.polyItems.length === 0) {
+        let canvasBound = canvas.getBoundingClientRect();
         toolTip = new ToolTip(Date.now(), event.clientX - canvasBound.left + 10, event.clientY + canvasBound.top + 15);
     }
-    for (let i=0; i<scene.numPolyItems; i++) {
-        if (scene.polyItems[i].pointIntersects([px, py])) {
-            scene.polyItems[i].interacting = false;
-            scene.dragItem = new DragItem(scene, [px, py], i);
-            break;
+
+    if (palette.doesHandleIntersect([event.clientX, event.clientY])) {
+        let relP = palette.getHandlePoint([event.clientX, event.clientY]);
+        paletteGrip = new PaletteGrip(relP[0]);
+    } else {
+        for (let i=0; i<scene.polyItems.length; i++) {
+            if (scene.polyItems[i].pointIntersects([px, py])) {
+                scene.polyItems[i].interacting = false;
+                dragItem = new DragItem(scene, [px, py], i);
+                break;
+            }
         }
     }
 });
 
-baseCanvas.addEventListener('mousemove', function(event) {
-    let canvasBound = baseCanvas.getBoundingClientRect();
+canvas.addEventListener('mousemove', function(event) {
+    let canvasBound = canvas.getBoundingClientRect();
     px = -canvasBound.width * 0.5 + event.clientX - canvasBound.left;
     py = canvasBound.height * 0.5 - event.clientY + canvasBound.top;
-    if (scene.dragItem != null) {
-        scene.dragItem.dragP = [px, py];
+
+    if (paletteGrip !== null) {
+        palette.width = event.clientX - paletteGrip.relX;
+    } else if (dragItem !== null) {
+        dragItem.dragP = [px, py];
     }
 });
 
-baseCanvas.addEventListener('mouseup', function(event) {
+canvas.addEventListener('mouseup', function(event) {
+    paletteGrip = null;
     scene.deleteDrag = true;
 });
 
 window.onresize = function() {
-    baseCanvas.width = window.innerWidth;
-    baseCanvas.height = window.innerHeight;
+    canvas.width = window.innerWidth;
+    canvas.height = window.innerHeight;
     scene.resize();
 }
 
