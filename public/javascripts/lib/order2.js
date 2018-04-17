@@ -14,8 +14,9 @@ let drag_item = null;
 let delete_drag = false;
 
 let palette = {
-    width: 0,
+    width: -3,
     handle_width: 50,
+    off_screen_width: 350,
     grip: null,
     render() {
         context.fillStyle = rgba_to_hex(51, 51, 51, 128);
@@ -25,6 +26,9 @@ let palette = {
     },
     does_handle_intersect(point) {
         return point[0] > this.width && point[0] < (this.width + this.handle_width);
+    },
+    does_body_intersect(point) {
+        return point[0] < this.width;
     },
     get_handle_point(point) {
         return [
@@ -61,6 +65,7 @@ let render_interval = 33; //milliseconds
 let pan_x = 0;
 let pan_y = 0;
 let scale = 1.0;
+let gravity_constant = 32.2 * 12 / 1000000;
 
 let frames = 0;
 let frame_rate = 0;
@@ -127,6 +132,7 @@ function make_poly_item(p_idx) {
         rest_lengths_sq,
         edge_vec_idx,
         normal_depths,
+        is_in_palette: false,
         interacting: true,
         color: '#eeeeee',
 
@@ -359,6 +365,22 @@ function make_poly_item(p_idx) {
                 inverted.push(this.p_2d_idx[i]);
             }
             this.p_2d_idx = inverted;
+        },
+
+        clone() {
+            let avg_x = this.p_idx.reduce((prev, curr) => prev + points[curr * 2], 0) / this.p_idx.length;
+            let avg_y = this.p_idx.reduce((prev, curr) => prev + points[curr * 2 + 1], 0) / this.p_idx.length;
+            let p = make_regular_poly_coords(this.p_idx.length, avg_x, avg_y);
+            let new_idx = [];
+            for (let i = 0; i < p.length; i += 2) {
+                let idx = add_point(p[i], p[i + 1]);
+                new_idx.push(idx);
+                main_clipping_plane.add_p_idx(idx);
+            }
+            let new_item = make_poly_item(new_idx);
+            new_item.color = this.color;
+            poly_items.push(new_item);
+            return new_item;
         }
     };
 }
@@ -370,8 +392,10 @@ function make_clipping_plane(clip_left, clip_right, clip_bottom, clip_top) {
         clip_right,
         clip_bottom,
         clip_top,
-        add_p_idx(idx) {
-            this.p_2d_idx.push(idx * 2);
+        add_p_idx(...idx) {
+            for (let i of idx) {
+                this.p_2d_idx.push(i * 2);
+            }
         },
         clip() {
             for (let idx of this.p_2d_idx) {
@@ -426,6 +450,12 @@ function render() {
     palette.render();
 }
 
+function accumulate_forces() {
+    for (let idx of palette_clipping_plane.p_2d_idx) {
+        points_accel[idx + 1] = -gravity_constant;
+    }
+}
+
 function verlet(time_del) {
     for (let i = 0; i < num_points; i++) {
         let i2 = i * 2;
@@ -458,7 +488,10 @@ function constrain() {
 function collide_polys() {
     for (let i = 0; i < poly_items.length; i++) {
         for (let j = i + 1; j < poly_items.length; j++) {
-            if (poly_items[i].interacting && poly_items[j].interacting) {
+            if (poly_items[i].interacting
+                    && poly_items[j].interacting
+                    && poly_items[i].is_in_palette === poly_items[j].is_in_palette) {
+
                 let collision = poly_items[i].collide_poly(poly_items[j]);
                 if (collision) {
                     collisions++;
@@ -494,7 +527,7 @@ function safe_actions() {
 
 function tic() {
     render();
-    //accumulate_forces();
+    accumulate_forces();
     verlet(render_interval);
     constrain();
     collide_polys();
@@ -526,10 +559,17 @@ function rgba_to_hex(r, g, b, a = 255) {
     return '#' + component_to_hex(r) + component_to_hex(g) + component_to_hex(b) + component_to_hex(a);
 }
 
+function add_point(x, y) {
+    points.push(x, y);
+    points_last.push(x, y);
+    points_accel.push(0, 0);
+    return num_points++;
+}
+
 function make_regular_poly_coords(n, x, y) {
     let t = 2 * Math.PI / n
     let sl = Math.sin(t / 2);
-    let r = 50 / sl;
+    let r = 10 / sl;
 
     let p = [];
     let minX = null, maxX = null;
@@ -544,23 +584,51 @@ function make_regular_poly_coords(n, x, y) {
     return p;
 }
 
-function add_point(x, y) {
-    points.push(x, y);
-    points_last.push(x, y);
-    points_accel.push(0, 0);
-    return num_points++;
-}
-
-function add_regular_poly(n, clipping_plane) {
+function add_regular_poly(n, clipping_plane = main_clipping_plane) {
     let p = make_regular_poly_coords(n, px, py);
-    let p_idx = [];
+    let new_idx = [];
     for (let i = 0; i < p.length; i += 2) {
         let idx = add_point(p[i], p[i + 1]);
-        p_idx.push(idx);
-        palette_clipping_plane.add_p_idx(idx);
+        new_idx.push(idx);
+        clipping_plane.add_p_idx(idx);
     }
-    let poly_item = make_poly_item(p_idx);
+    let poly_item = make_poly_item(new_idx);
+    if (clipping_plane === palette_clipping_plane) {
+        poly_item.is_in_palette = true;
+    }
     poly_item.color = rgba_to_hex(...color_map[n]);
+    poly_items.push(poly_item);
+}
+
+function add_rhomb_a(clipping_plane) {
+    let l = 100;
+    let p1 = add_point(px + l * Math.cos(Math.PI / 10), py);
+    let p2 = add_point(px, py + l * Math.sin(Math.PI / 10));
+    let p3 = add_point(px - l * Math.cos(Math.PI / 10), py);
+    let p4 = add_point(px, py - l * Math.sin(Math.PI / 10));
+
+    clipping_plane.add_p_idx(p1, p2, p3, p4);
+
+    let poly_item = make_poly_item([p1, p2, p3, p4]);
+    if (clipping_plane === palette_clipping_plane) {
+        poly_item.is_in_palette = true;
+    }
+    poly_items.push(poly_item);
+}
+
+function add_rhomb_b(clipping_plane) {
+    let l = 100;
+    let p1 = add_point(px + l * Math.cos(Math.PI / 5), py);
+    let p2 = add_point(px, py + l * Math.sin(Math.PI / 5));
+    let p3 = add_point(px - l * Math.cos(Math.PI / 5), py);
+    let p4 = add_point(px, py - l * Math.sin(Math.PI / 5));
+
+    clipping_plane.add_p_idx(p1, p2, p3, p4);
+
+    let poly_item = make_poly_item([p1, p2, p3, p4]);
+    if (clipping_plane === palette_clipping_plane) {
+        poly_item.is_in_palette = true;
+    }
     poly_items.push(poly_item);
 }
 
@@ -650,10 +718,10 @@ document.addEventListener("keydown", function(event) {
         case 61:                                      //'=' / '+'
           break;
         case 65:                                      //'a'
-          addRhombA();
+          add_rhomb_a();
           break;
         case 66:                                      //'b'
-          addRhombB();
+          add_rhomb_b();
           break;
         case 67:                                      //'c'
           break;
@@ -714,56 +782,84 @@ document.addEventListener("keydown", function(event) {
     }
 });
 
-canvas.addEventListener('mousedown', function(event) {
-    if (palette.does_handle_intersect([event.clientX, event.clientY])) {
-        let rel_p = palette.get_handle_point([event.clientX, event.clientY]);
+function is_touch_device() {
+    return 'ontouchstart' in window        // works on most browsers 
+        || navigator.maxTouchPoints;       // works on IE10/11 and Surface
+};
+
+function set_point(p) {
+    let canvas_bound = canvas.getBoundingClientRect();
+    px = -canvas_bound.width * 0.5 + p[0];// - canvas_bound.left;
+    py = canvas_bound.height * 0.5 - p[1];// + canvas_bound.top;
+}
+
+function point_start(p) {
+    set_point(p);
+
+    if (palette.does_handle_intersect(p)) {
+        let rel_p = palette.get_handle_point(p);
         palette.grip = make_palette_grip(rel_p[0]);
     } else {
         for (let item of poly_items) {
             if (item.point_intersects([px, py])) {
-                item.interacting = false;
-                drag_item = make_drag_item(px, py, item);
-                break;
+                if (palette.does_body_intersect(p) && item.is_in_palette) {
+                    let new_item = item.clone();
+                    new_item.interacting = false;
+                    drag_item = make_drag_item(px, py, new_item);
+                    break;
+                } else {
+                    item.interacting = false;
+                    drag_item = make_drag_item(px, py, item);
+                    break;
+                }
             }
         }
     }
-});
+}
 
-canvas.addEventListener('mousemove', function(event) {
-    let canvas_bound = canvas.getBoundingClientRect();
-    px = -canvas_bound.width * 0.5 + event.clientX - canvas_bound.left;
-    py = canvas_bound.height * 0.5 - event.clientY + canvas_bound.top;
+function point_move(p) {
+    set_point(p);
 
     if (palette.grip !== null) {
-        palette.width = event.clientX - palette.grip.rel_x;
+        palette.width = p[0] - palette.grip.rel_x;
+        let off_screen_width = (palette.off_screen_width - palette.width < 0) ? 0 : palette.off_screen_width - palette.width;
+        palette_clipping_plane.clip_left = -canvas.width * 0.5 - off_screen_width;
         palette_clipping_plane.clip_right = -canvas.width * 0.5 + palette.width;
     } else if (drag_item !== null) {
         drag_item.x = px;
         drag_item.y = py;
     }
-});
-
-canvas.addEventListener('mouseup', function(event) {
-    palette.grip = null;
-    delete_drag = true;
-});
-
-window.onresize = function() {
-    canvas.width = window.innerWidth;
-    canvas.height = window.innerHeight;
-    main_clipping_plane.clip_left = -canvas.width * 0.5;
-    main_clipping_plane.clip_right = canvas.width * 0.5;
-    main_clipping_plane.clip_bottom = -canvas.height * 0.5;
-    main_clipping_plane.clip_top = canvas.height * 0.5;
-    palette_clipping_plane.clip_left = -canvas.width * 0.5;
-    palette_clipping_plane.clip_right = -canvas.width * 0.5 + palette.width;
-    palette_clipping_plane.clip_bottom = -canvas.height * 0.5;
-    palette_clipping_plane.clip_top = canvas.height * 0.5;
-    matrix_good = false;
 }
 
-let event = new Event('resize');
-window.dispatchEvent(event);
+function point_end() {
+    palette.grip = null;
+    delete_drag = true;
+}
+
+if (is_touch_device()) {
+
+    canvas.addEventListener('touchstart', function(event) {
+        point_start([event.touches[0].clientX, event.touches[0].clientY]);
+    });
+
+    canvas.addEventListener('touchmove', function(event) {
+        point_move([event.touches[0].clientX, event.touches[0].clientY]);
+    });
+
+    canvas.addEventListener('touchend', point_end);
+
+} else {
+
+    canvas.addEventListener('mousedown', function(event) {
+        point_start([event.clientX, event.clientY]);
+    });
+
+    canvas.addEventListener('mousemove', function(event) {
+        point_move([event.clientX, event.clientY]);
+    });
+
+    canvas.addEventListener('mouseup', point_end);
+}
 
 setInterval(function () {
     tic();
@@ -776,3 +872,30 @@ setInterval(function () {
     frames = 0;
     collisions = 0;
 }, 1000);
+
+window.onresize = function() {
+    canvas.width = window.innerWidth;
+    canvas.height = window.innerHeight;
+    main_clipping_plane.clip_left = -canvas.width * 0.5;
+    main_clipping_plane.clip_right = canvas.width * 0.5;
+    main_clipping_plane.clip_bottom = -canvas.height * 0.5;
+    main_clipping_plane.clip_top = canvas.height * 0.5;
+    let off_screen_width = (palette.off_screen_width - palette.width < 0) ? 0 : palette.off_screen_width - palette.width;
+    palette_clipping_plane.clip_left = -canvas.width * 0.5 - off_screen_width;
+    palette_clipping_plane.clip_right = -canvas.width * 0.5 + palette.width;
+    palette_clipping_plane.clip_bottom = -canvas.height * 0.5;
+    palette_clipping_plane.clip_top = canvas.height * 0.5;
+    matrix_good = false;
+}
+
+let event = new Event('resize');
+window.dispatchEvent(event);
+
+px = (palette_clipping_plane.clip_left + palette_clipping_plane.clip_right) * 0.5;
+py = (palette_clipping_plane.clip_bottom + palette_clipping_plane.clip_top) * 0.5;
+for (let n of [3, 4, 5, 6, 7, 8, 9, 10]) {
+    add_regular_poly(n, palette_clipping_plane);
+}
+
+//add_rhomb_a(palette_clipping_plane);
+//add_rhomb_b(palette_clipping_plane);
