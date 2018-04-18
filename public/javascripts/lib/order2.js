@@ -16,26 +16,54 @@ let delete_drag = false;
 let palette = {
     width: -3,
     handle_width: 50,
-    off_screen_width: 350,
+    off_screen_width: 100,
     grip: null,
+    clipping_plane: make_clipping_plane(
+        -canvas.width * 0.5,
+        -canvas.width * 0.5 + this.width,
+        -canvas.height * 0.5,
+        canvas.height * 0.5
+    ),
+
+    resize(width) {
+        width = width < -3 ? -3 : width;
+        width = width > 300 ? 300 : width;
+        this.width = width;
+        this.off_screen_width = (100 - width < 0) ? 0 : 100 - width;
+
+        this.clipping_plane.clip_left = -canvas.width * 0.5 - this.off_screen_width;
+        this.clipping_plane.clip_right = -canvas.width * 0.5 + this.width;
+        this.clipping_plane.clip_bottom = -canvas.height * 0.5;
+        this.clipping_plane.clip_top = canvas.height * 0.5;
+    },
+
     render() {
-        context.fillStyle = rgba_to_hex(51, 51, 51, 128);
-        context.fillRect(0, 0, this.width, canvas.height);
-        context.fillStyle = rgba_to_hex(102, 102, 102, 128);
-        context.fillRect(this.width, 0, this.handle_width, canvas.height);
+        let points = [
+            -canvas.width * 0.5,              -canvas.height * 0.5,
+            -canvas.width * 0.5 + this.width, -canvas.height * 0.5
+        ];
+        let points_transformed = matrix.transformArray(points);
+
+        context.fillStyle = '#' + rgba_to_hex(51, 51, 51, 128);
+        context.fillRect(points_transformed[0], points_transformed[1], this.width, canvas.height);
+        context.fillStyle = '#' + rgba_to_hex(102, 102, 102, 128);
+        context.fillRect(points_transformed[2], points_transformed[3], this.handle_width, canvas.height);
     },
+
     does_handle_intersect(point) {
-        return point[0] > this.width && point[0] < (this.width + this.handle_width);
+        return point[0] > (-canvas.width * 0.5 + this.width) && point[0] < (-canvas.width * 0.5 + this.width + this.handle_width);
     },
-    does_body_intersect(point) {
-        return point[0] < this.width;
-    },
+
     get_handle_point(point) {
         return [
             point[0] - this.width,
             point[1]
         ];
     }
+
+    does_body_intersect(point) {
+        return point[0] < this.width;
+    },
 };
 
 let matrix = new Matrix2D();
@@ -48,16 +76,9 @@ let main_clipping_plane = make_clipping_plane(
     canvas.height * 0.5
 );
 
-let palette_clipping_plane = make_clipping_plane(
-    -canvas.width * 0.5,
-    -canvas.width * 0.5 + palette.width,
-    -canvas.height * 0.5,
-    canvas.height * 0.5
-);
-
 let clipping_planes = [
     main_clipping_plane,
-    palette_clipping_plane
+    palette.clipping_plane
 ];
 
 let draw_text = false;
@@ -134,19 +155,21 @@ function make_poly_item(p_idx) {
         normal_depths,
         is_in_palette: false,
         interacting: true,
-        color: '#eeeeee',
+        color: 'eeeeee',
+        fill_color: 'eeeeee',
 
         render() {
             context.beginPath();
-            context.strokeStyle = this.color;
-            context.lineWidth = 3;
-            //context.fillStyle = '#eeeeee';
+            context.strokeStyle = '#' + this.color;
+            context.lineWidth = 4;
+            context.fillStyle = '#' + this.fill_color;
             for (let idx of this.p_2d_idx) {
                 context.lineTo(points_transformed[idx], canvas.height - points_transformed[idx + 1]);
                 //context.fillText(i, points_transformed[this.p_2d_idx[i]], canvas.height - points_transformed[this.p_2d_idx[i]+1]);
             }
-            context.lineTo(points_transformed[this.p_2d_idx[0]], canvas.height - points_transformed[this.p_2d_idx[0]+1]); // close the polygon
+            context.closePath();
             context.stroke();
+            context.fill();
         },
 
         constrain() {
@@ -378,7 +401,10 @@ function make_poly_item(p_idx) {
                 main_clipping_plane.add_p_idx(idx);
             }
             let new_item = make_poly_item(new_idx);
-            new_item.color = this.color;
+            let color = hex_to_rgba(this.color);
+            color = permute_color(...color);
+            new_item.color = rgba_to_hex(...color);
+            new_item.fill_color = rgba_to_hex(...desaturate(...color));
             poly_items.push(new_item);
             return new_item;
         }
@@ -400,16 +426,16 @@ function make_clipping_plane(clip_left, clip_right, clip_bottom, clip_top) {
         clip() {
             for (let idx of this.p_2d_idx) {
                 if (points[idx] < this.clip_left) {
-                    points[idx] = this.clip_left;
+                    points[idx] = this.clip_left + Math.random() - 0.5;
                 }
                 if (points[idx] > this.clip_right) {
-                    points[idx] = this.clip_right;
+                    points[idx] = this.clip_right + Math.random() - 0.5;
                 }
                 if (points[idx + 1] < this.clip_bottom) {
-                    points[idx + 1] = this.clip_bottom;
+                    points[idx + 1] = this.clip_bottom + Math.random() - 0.5;
                 }
                 if (points[idx + 1] > this.clip_top) {
-                    points[idx + 1] = this.clip_top;
+                    points[idx + 1] = this.clip_top + Math.random() - 0.5;
                 }
             }
         }
@@ -422,8 +448,8 @@ function render() {
 
     if (! matrix_good) {
         matrix.identity();
-        matrix.translate(half_width - pan_x, half_height - pan_y);
         matrix.scale(scale, scale);
+        matrix.translate(half_width - pan_x, half_height - pan_y);
         //matrix.rotate(this.rotation);
         matrix_good = true;
     }
@@ -431,8 +457,10 @@ function render() {
     points_transformed = matrix.transformArray(points);
 
     context.save();
+
     context.fillStyle = '#000000';
     context.fillRect(0, 0, canvas.width, canvas.height);
+    context.globalCompositeOperation = 'screen';
 
     if (draw_text) {
         context.fillStyle = '#aaaaaa';
@@ -448,10 +476,12 @@ function render() {
     }
 
     palette.render();
+
+    context.restore();
 }
 
 function accumulate_forces() {
-    for (let idx of palette_clipping_plane.p_2d_idx) {
+    for (let idx of palette.clipping_plane.p_2d_idx) {
         points_accel[idx + 1] = -gravity_constant;
     }
 }
@@ -556,7 +586,109 @@ function component_to_hex(c) {
 }
 
 function rgba_to_hex(r, g, b, a = 255) {
-    return '#' + component_to_hex(r) + component_to_hex(g) + component_to_hex(b) + component_to_hex(a);
+    return component_to_hex(r) + component_to_hex(g) + component_to_hex(b) + component_to_hex(a);
+}
+
+function hex_to_rgba(hex) {
+    let r = parseInt(hex.slice(0, 2), 16);
+    let g = parseInt(hex.slice(2, 4), 16);
+    let b = parseInt(hex.slice(4, 6), 16);
+    let a = parseInt(hex.slice(6, 8), 16);
+    return [r, g, b, a];
+}
+
+function bound(x, low = 0, high = 255) {
+    return (x >= low) ? ((x <= high) ? x : high) : low;
+}
+
+function rgb_to_hsl(r, g, b) {
+    //console.log('r, g, b', r, g, b);
+    let r_n = r / 255;
+    let g_n = g / 255;
+    let b_n = b / 255;
+    //console.log('r_n, g_n, b_n', r_n, g_n, b_n);
+
+    let h, s, l;
+
+    let c_max = Math.max(r_n, g_n, b_n);
+    let c_min = Math.min(r_n, g_n, b_n);
+    let del = c_max - c_min;
+    //console.log('c_max, c_min, del', c_max, c_min, del);
+
+    l = (c_max + c_min) / 2;
+
+    if (del === 0) {
+        h = 0;
+        s = 0;
+    } else {
+        s = del / (1 - Math.abs(2 * l - 1));
+
+        if (c_max === r_n) {
+            h = 60 * (((g_n - b_n) / del) % 6);
+        } else if (c_max === g_n) {
+            h = 60 * (((b_n - r_n) / del) + 2);
+        } else {
+            h = 60 * (((r_n - g_n) / del) + 4);
+        }
+
+        h = bound(h, 0, 359);
+    }
+    //console.log('h, s, l', h, s, l);
+
+    return [h, s, l];
+}
+
+function hsl_to_rgb(h, s, l) {
+    //console.log('h, s, l', h, s, l);
+    let c = (1 - Math.abs(2 * l - 1)) * s;
+    let x = c * (1 - Math.abs((h / 60) % 2 - 1));
+    let m = l - c / 2;
+    //console.log('c, x, m', c, x, m);
+
+    let r, g, b;
+
+    switch (true) {
+        case 0 <= h && h < 60:
+            [r, g, b] = [c, x, 0];
+            break;
+        case 60 <= h && h < 120:
+            [r, g, b] = [x, c, 0];
+            break;
+        case 120 <= h && h < 180:
+            [r, g, b] = [0, c, x];
+            break;
+        case 180 <= h && h < 240:
+            [r, g, b] = [0, x, c];
+            break;
+        case 240 <= h && h < 300:
+            [r, g, b] = [x, 0, c];
+            break;
+        case 300 <= h && h < 360:
+            [r, g, b] = [c, 0, x];
+            break;
+        default:
+            console.log('Invalid hue: ' + String(h));
+            [r, g, b] = [1, 1, 1];
+            break;
+    }
+
+    return [r, g, b].map(x => Math.round((x + m) * 255));
+}
+
+function permute_color(r, g, b) {
+    console.log('before r, g, b', r, g, b);
+    let [h, s, l] = rgb_to_hsl(r, g, b);
+    console.log('before h', h);
+    h = Math.round(h + Math.random() * 40 - 20);
+    h = (h + 360) % 360;
+    console.log('after h', h);
+    [r, g, b] = hsl_to_rgb(h, s, l);
+    console.log('after r, g, b', r, g, b);
+    return [r, g, b];//.map(x => Math.round(bound(x + Math.random() * 60 - 30)));
+}
+
+function desaturate(r, g, b, factor = 0.1) {
+    return [r, g, b].map(x => Math.round(x * factor));
 }
 
 function add_point(x, y) {
@@ -569,23 +701,19 @@ function add_point(x, y) {
 function make_regular_poly_coords(n, x, y) {
     let t = 2 * Math.PI / n
     let sl = Math.sin(t / 2);
-    let r = 10 / sl;
+    let r = 20 / sl;
 
     let p = [];
-    let minX = null, maxX = null;
     for (let i = 0; i < n; i++) {
         p[2 * i] = x + r * Math.cos(t / 2 + i * t);
         p[2 * i + 1] = y + r * Math.sin(t / 2 + i * t);
-        minX = (minX === null || p[2 * i] < minX) ? p[2 * i] : minX;
-        maxX = (maxX === null || p[2 * i] > maxX) ? p[2 * i] : maxX;
     }
 
-    //console.log(maxX - minX);
     return p;
 }
 
-function add_regular_poly(n, clipping_plane = main_clipping_plane) {
-    let p = make_regular_poly_coords(n, px, py);
+function add_regular_poly(n, x, y, clipping_plane = main_clipping_plane, pure_color = false) {
+    let p = make_regular_poly_coords(n, x, y);
     let new_idx = [];
     for (let i = 0; i < p.length; i += 2) {
         let idx = add_point(p[i], p[i + 1]);
@@ -593,40 +721,45 @@ function add_regular_poly(n, clipping_plane = main_clipping_plane) {
         clipping_plane.add_p_idx(idx);
     }
     let poly_item = make_poly_item(new_idx);
-    if (clipping_plane === palette_clipping_plane) {
+    if (clipping_plane === palette.clipping_plane) {
         poly_item.is_in_palette = true;
     }
-    poly_item.color = rgba_to_hex(...color_map[n]);
+    let color = color_map[n];
+    if (! pure_color) {
+        color = permute_color(...color);
+    }
+    poly_item.color = rgba_to_hex(...color);
+    poly_item.fill_color = rgba_to_hex(...desaturate(...color));
     poly_items.push(poly_item);
 }
 
-function add_rhomb_a(clipping_plane) {
+function add_rhomb_a(x, y, clipping_plane = main_clipping_plane) {
     let l = 100;
-    let p1 = add_point(px + l * Math.cos(Math.PI / 10), py);
-    let p2 = add_point(px, py + l * Math.sin(Math.PI / 10));
-    let p3 = add_point(px - l * Math.cos(Math.PI / 10), py);
-    let p4 = add_point(px, py - l * Math.sin(Math.PI / 10));
+    let p1 = add_point(x + l * Math.cos(Math.PI / 10), y);
+    let p2 = add_point(x, y + l * Math.sin(Math.PI / 10));
+    let p3 = add_point(x - l * Math.cos(Math.PI / 10), y);
+    let p4 = add_point(x, y - l * Math.sin(Math.PI / 10));
 
     clipping_plane.add_p_idx(p1, p2, p3, p4);
 
     let poly_item = make_poly_item([p1, p2, p3, p4]);
-    if (clipping_plane === palette_clipping_plane) {
+    if (clipping_plane === palette.clipping_plane) {
         poly_item.is_in_palette = true;
     }
     poly_items.push(poly_item);
 }
 
-function add_rhomb_b(clipping_plane) {
+function add_rhomb_b(x, y, clipping_plane = main_clipping_plane) {
     let l = 100;
-    let p1 = add_point(px + l * Math.cos(Math.PI / 5), py);
-    let p2 = add_point(px, py + l * Math.sin(Math.PI / 5));
-    let p3 = add_point(px - l * Math.cos(Math.PI / 5), py);
-    let p4 = add_point(px, py - l * Math.sin(Math.PI / 5));
+    let p1 = add_point(x + l * Math.cos(Math.PI / 5), y);
+    let p2 = add_point(x, y + l * Math.sin(Math.PI / 5));
+    let p3 = add_point(x - l * Math.cos(Math.PI / 5), y);
+    let p4 = add_point(x, y - l * Math.sin(Math.PI / 5));
 
     clipping_plane.add_p_idx(p1, p2, p3, p4);
 
     let poly_item = make_poly_item([p1, p2, p3, p4]);
-    if (clipping_plane === palette_clipping_plane) {
+    if (clipping_plane === palette.clipping_plane) {
         poly_item.is_in_palette = true;
     }
     poly_items.push(poly_item);
@@ -708,12 +841,12 @@ document.addEventListener("keydown", function(event) {
         case 46:                                      //delete
           break;
         case 48:                                      //'0'
-          add_regular_poly(10)
+          add_regular_poly(10, px, py)
           break;
         case 49: case 50:                             //'1'-'2'
           break;
         case 51: case 52: case 53: case 54: case 55: case 56: case 57: //'3'-'9'
-          add_regular_poly(event.which - 48);
+          add_regular_poly(event.which - 48, px, py);
           break;
         case 61:                                      //'=' / '+'
           break;
@@ -731,7 +864,7 @@ document.addEventListener("keydown", function(event) {
         case 69:                                      //'e'
           break;
         case 70:                                      //'f'
-          add_regular_poly(Math.floor(Math.random()*6+3));
+          add_regular_poly(Math.floor(Math.random() * 8 + 3), px, py);
           break;
         case 71:                                      //'g'
           gravity = !gravity;
@@ -740,6 +873,7 @@ document.addEventListener("keydown", function(event) {
           break;
         case 73:                                      //'i'
           scale *= 1.1;
+          matrix_good = false;
           break;
         case 76:                                      //'l'
           break;
@@ -748,6 +882,7 @@ document.addEventListener("keydown", function(event) {
           break;
         case 79:                                      //'o'
           scale /= 1.1;
+          matrix_good = false;
           break;
         case 80:                                      //'p'
           pause = !pause;
@@ -787,10 +922,17 @@ function is_touch_device() {
         || navigator.maxTouchPoints;       // works on IE10/11 and Surface
 };
 
-function set_point(p) {
+function transform_point(p) {
     let canvas_bound = canvas.getBoundingClientRect();
-    px = -canvas_bound.width * 0.5 + p[0];// - canvas_bound.left;
-    py = canvas_bound.height * 0.5 - p[1];// + canvas_bound.top;
+    return [
+        -canvas_bound.width * 0.5 + p[0],
+        canvas_bound.height * 0.5 - p[1]
+    ];
+}
+
+function set_point(p) {
+    px = p[0];// - canvas_bound.left;
+    py = p[1];// + canvas_bound.top;
 }
 
 function point_start(p) {
@@ -801,15 +943,15 @@ function point_start(p) {
         palette.grip = make_palette_grip(rel_p[0]);
     } else {
         for (let item of poly_items) {
-            if (item.point_intersects([px, py])) {
-                if (palette.does_body_intersect(p) && item.is_in_palette) {
+            if (item.point_intersects(p)) {
+                if (item.is_in_palette) {
                     let new_item = item.clone();
                     new_item.interacting = false;
-                    drag_item = make_drag_item(px, py, new_item);
+                    drag_item = make_drag_item(p[0], p[1], new_item);
                     break;
                 } else {
-                    item.interacting = false;
-                    drag_item = make_drag_item(px, py, item);
+                    //item.interacting = false;
+                    drag_item = make_drag_item(p[0], p[1], item);
                     break;
                 }
             }
@@ -821,13 +963,11 @@ function point_move(p) {
     set_point(p);
 
     if (palette.grip !== null) {
-        palette.width = p[0] - palette.grip.rel_x;
-        let off_screen_width = (palette.off_screen_width - palette.width < 0) ? 0 : palette.off_screen_width - palette.width;
-        palette_clipping_plane.clip_left = -canvas.width * 0.5 - off_screen_width;
-        palette_clipping_plane.clip_right = -canvas.width * 0.5 + palette.width;
+        let width = p[0] - palette.grip.rel_x;
+        palette.resize(width);
     } else if (drag_item !== null) {
-        drag_item.x = px;
-        drag_item.y = py;
+        drag_item.x = p[0];
+        drag_item.y = p[1];
     }
 }
 
@@ -836,14 +976,16 @@ function point_end() {
     delete_drag = true;
 }
 
-if (is_touch_device()) {
+if (false && is_touch_device()) {
 
     canvas.addEventListener('touchstart', function(event) {
-        point_start([event.touches[0].clientX, event.touches[0].clientY]);
+        let point = transform_point([event.touches[0].clientX, event.touches[0].clientY]);
+        point_start(point);
     });
 
     canvas.addEventListener('touchmove', function(event) {
-        point_move([event.touches[0].clientX, event.touches[0].clientY]);
+        let point = transform_point([event.touches[0].clientX, event.touches[0].clientY]);
+        point_move(point);
     });
 
     canvas.addEventListener('touchend', point_end);
@@ -851,11 +993,13 @@ if (is_touch_device()) {
 } else {
 
     canvas.addEventListener('mousedown', function(event) {
-        point_start([event.clientX, event.clientY]);
+        let point = transform_point([event.clientX, event.clientY]);
+        point_start(point);
     });
 
     canvas.addEventListener('mousemove', function(event) {
-        point_move([event.clientX, event.clientY]);
+        let point = transform_point([event.clientX, event.clientY]);
+        point_move(point);
     });
 
     canvas.addEventListener('mouseup', point_end);
@@ -880,22 +1024,18 @@ window.onresize = function() {
     main_clipping_plane.clip_right = canvas.width * 0.5;
     main_clipping_plane.clip_bottom = -canvas.height * 0.5;
     main_clipping_plane.clip_top = canvas.height * 0.5;
-    let off_screen_width = (palette.off_screen_width - palette.width < 0) ? 0 : palette.off_screen_width - palette.width;
-    palette_clipping_plane.clip_left = -canvas.width * 0.5 - off_screen_width;
-    palette_clipping_plane.clip_right = -canvas.width * 0.5 + palette.width;
-    palette_clipping_plane.clip_bottom = -canvas.height * 0.5;
-    palette_clipping_plane.clip_top = canvas.height * 0.5;
+    palette.resize(palette.width);
     matrix_good = false;
 }
 
 let event = new Event('resize');
 window.dispatchEvent(event);
 
-px = (palette_clipping_plane.clip_left + palette_clipping_plane.clip_right) * 0.5;
-py = (palette_clipping_plane.clip_bottom + palette_clipping_plane.clip_top) * 0.5;
+let x = (palette.clipping_plane.clip_left + palette.clipping_plane.clip_right) * 0.5;
+let y = (palette.clipping_plane.clip_bottom + palette.clipping_plane.clip_top) * 0.5;
 for (let n of [3, 4, 5, 6, 7, 8, 9, 10]) {
-    add_regular_poly(n, palette_clipping_plane);
+    add_regular_poly(n, x, y, palette.clipping_plane, true);
 }
 
-//add_rhomb_a(palette_clipping_plane);
-//add_rhomb_b(palette_clipping_plane);
+//add_rhomb_a(palette.clipping_plane);
+//add_rhomb_b(palette.clipping_plane);
