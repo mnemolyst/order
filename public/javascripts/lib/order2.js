@@ -59,11 +59,11 @@ let palette = {
             point[0] - this.width,
             point[1]
         ];
-    }
+    },
 
     does_body_intersect(point) {
         return point[0] < this.width;
-    },
+    }
 };
 
 let matrix = new Matrix2D();
