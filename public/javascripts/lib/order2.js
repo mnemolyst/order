@@ -39,8 +39,10 @@ let palette = {
 
     render() {
         let points = [
-            -canvas.width * 0.5,              -canvas.height * 0.5,
-            -canvas.width * 0.5 + this.width, -canvas.height * 0.5
+            -canvas.width * 0.5,                  -canvas.height * 0.5,     // corner of palette
+            -canvas.width * 0.5 + this.width,     -canvas.height * 0.5,     // corner of palette handle
+            -canvas.width * 0.5 + this.width + 8, -canvas.height * 0.5 + 5, // corner of '+' text
+            -canvas.width * 0.5 + this.width + 8, -canvas.height * 0.5 + 65 // corner of '+' text
         ];
         let points_transformed = matrix.transformArray(points);
 
@@ -48,6 +50,12 @@ let palette = {
         context.fillRect(points_transformed[0], points_transformed[1], this.width, canvas.height);
         context.fillStyle = '#' + rgba_to_hex(102, 102, 102, 128);
         context.fillRect(points_transformed[2], points_transformed[3], this.handle_width, canvas.height);
+
+        context.fillStyle = '#aaaaaa';
+        context.textBaseline = 'top';
+        context.font = '60px Helvetica';
+        context.fillText('\u002b', points_transformed[4], points_transformed[5]); // 'plus'
+        context.fillText('\u2212', points_transformed[6], points_transformed[7]); // 'minus'
     },
 
     does_handle_intersect(point) {
@@ -59,6 +67,41 @@ let palette = {
             point[0] - this.width,
             point[1]
         ];
+    },
+
+    does_plus_intersect(point) {
+        return point[0] > (-canvas.width * 0.5 + this.width)
+            && point[0] < (-canvas.width * 0.5 + this.width + this.handle_width)
+            && point[1] > (-canvas.height * 0.5)
+            && point[1] < (-canvas.height * 0.5 + 60); // 60px Helvetica
+    },
+
+    double_size() {
+        // TODO add a function as a property to poly items that generates their coordinates
+        let avg_x = this.p_idx.reduce((prev, curr) => prev + points[curr * 2], 0) / this.p_idx.length;
+        let avg_y = this.p_idx.reduce((prev, curr) => prev + points[curr * 2 + 1], 0) / this.p_idx.length;
+        let p = make_regular_poly_coords(this.p_idx.length, avg_x, avg_y);
+        let new_idx = [];
+        for (let i = 0; i < p.length; i += 2) {
+            let idx = add_point(p[i], p[i + 1]);
+            new_idx.push(idx);
+            main_clipping_plane.add_p_idx(idx);
+        }
+        let new_item = make_poly_item(new_idx);
+        let color = hex_to_rgba(this.color);
+        color = permute_color(...color);
+        new_item.color = rgba_to_hex(...color);
+        new_item.side_length = this.side_length;
+        new_item.fill_color = rgba_to_hex(...desaturate(...color));
+        poly_items.push(new_item);
+        return new_item;
+    },
+
+    does_minus_intersect(point) {
+        return point[0] > (-canvas.width * 0.5 + this.width)
+            && point[0] < (-canvas.width * 0.5 + this.width + this.handle_width)
+            && point[1] > (-canvas.height * 0.5 + 60) // 60px Helvetica
+            && point[1] < (-canvas.height * 0.5 + 120);
     },
 
     does_body_intersect(point) {
@@ -157,6 +200,7 @@ function make_poly_item(p_idx) {
         interacting: true,
         color: 'eeeeee',
         fill_color: 'eeeeee',
+        side_length: 20,
 
         render() {
             context.beginPath();
@@ -164,7 +208,7 @@ function make_poly_item(p_idx) {
             context.lineWidth = 4;
             context.fillStyle = '#' + this.fill_color;
             for (let idx of this.p_2d_idx) {
-                context.lineTo(points_transformed[idx], canvas.height - points_transformed[idx + 1]);
+                context.lineTo(points_transformed[idx], points_transformed[idx + 1]);
                 //context.fillText(i, points_transformed[this.p_2d_idx[i]], canvas.height - points_transformed[this.p_2d_idx[i]+1]);
             }
             context.closePath();
@@ -404,6 +448,7 @@ function make_poly_item(p_idx) {
             let color = hex_to_rgba(this.color);
             color = permute_color(...color);
             new_item.color = rgba_to_hex(...color);
+            new_item.side_length = this.side_length;
             new_item.fill_color = rgba_to_hex(...desaturate(...color));
             poly_items.push(new_item);
             return new_item;
@@ -462,6 +507,12 @@ function render() {
     context.fillRect(0, 0, canvas.width, canvas.height);
     context.globalCompositeOperation = 'screen';
 
+    for (let item of poly_items) {
+        item.render();
+    }
+
+    palette.render();
+
     if (draw_text) {
         context.fillStyle = '#aaaaaa';
         context.textBaseline = 'top';
@@ -471,18 +522,12 @@ function render() {
         context.fillText('polys: ' + poly_items.length, 5, 35);
     }
 
-    for (let item of poly_items) {
-        item.render();
-    }
-
-    palette.render();
-
     context.restore();
 }
 
 function accumulate_forces() {
     for (let idx of palette.clipping_plane.p_2d_idx) {
-        points_accel[idx + 1] = -gravity_constant;
+        points_accel[idx + 1] = gravity_constant;
     }
 }
 
@@ -602,18 +647,15 @@ function bound(x, low = 0, high = 255) {
 }
 
 function rgb_to_hsl(r, g, b) {
-    //console.log('r, g, b', r, g, b);
     let r_n = r / 255;
     let g_n = g / 255;
     let b_n = b / 255;
-    //console.log('r_n, g_n, b_n', r_n, g_n, b_n);
 
     let h, s, l;
 
     let c_max = Math.max(r_n, g_n, b_n);
     let c_min = Math.min(r_n, g_n, b_n);
     let del = c_max - c_min;
-    //console.log('c_max, c_min, del', c_max, c_min, del);
 
     l = (c_max + c_min) / 2;
 
@@ -633,17 +675,14 @@ function rgb_to_hsl(r, g, b) {
 
         h = bound(h, 0, 359);
     }
-    //console.log('h, s, l', h, s, l);
 
     return [h, s, l];
 }
 
 function hsl_to_rgb(h, s, l) {
-    //console.log('h, s, l', h, s, l);
     let c = (1 - Math.abs(2 * l - 1)) * s;
     let x = c * (1 - Math.abs((h / 60) % 2 - 1));
     let m = l - c / 2;
-    //console.log('c, x, m', c, x, m);
 
     let r, g, b;
 
@@ -676,14 +715,10 @@ function hsl_to_rgb(h, s, l) {
 }
 
 function permute_color(r, g, b) {
-    console.log('before r, g, b', r, g, b);
     let [h, s, l] = rgb_to_hsl(r, g, b);
-    console.log('before h', h);
-    h = Math.round(h + Math.random() * 40 - 20);
+    h = Math.round(h + Math.random() * 30 - 15);
     h = (h + 360) % 360;
-    console.log('after h', h);
     [r, g, b] = hsl_to_rgb(h, s, l);
-    console.log('after r, g, b', r, g, b);
     return [r, g, b];//.map(x => Math.round(bound(x + Math.random() * 60 - 30)));
 }
 
@@ -698,10 +733,10 @@ function add_point(x, y) {
     return num_points++;
 }
 
-function make_regular_poly_coords(n, x, y) {
+function make_regular_poly_coords(n, x, y, l = 20) {
     let t = 2 * Math.PI / n
     let sl = Math.sin(t / 2);
-    let r = 20 / sl;
+    let r = l / sl;
 
     let p = [];
     for (let i = 0; i < n; i++) {
@@ -721,14 +756,18 @@ function add_regular_poly(n, x, y, clipping_plane = main_clipping_plane, pure_co
         clipping_plane.add_p_idx(idx);
     }
     let poly_item = make_poly_item(new_idx);
+
     if (clipping_plane === palette.clipping_plane) {
         poly_item.is_in_palette = true;
     }
+
     let color = color_map[n];
     if (! pure_color) {
         color = permute_color(...color);
     }
+
     poly_item.color = rgba_to_hex(...color);
+    poly_item.side_length = 20;
     poly_item.fill_color = rgba_to_hex(...desaturate(...color));
     poly_items.push(poly_item);
 }
@@ -926,7 +965,7 @@ function transform_point(p) {
     let canvas_bound = canvas.getBoundingClientRect();
     return [
         -canvas_bound.width * 0.5 + p[0],
-        canvas_bound.height * 0.5 - p[1]
+        -canvas_bound.height * 0.5 + p[1]
     ];
 }
 
@@ -939,8 +978,14 @@ function point_start(p) {
     set_point(p);
 
     if (palette.does_handle_intersect(p)) {
-        let rel_p = palette.get_handle_point(p);
-        palette.grip = make_palette_grip(rel_p[0]);
+        if (palette.does_plus_intersect(p)) {
+            palette.double_size();
+        } else if (palette.does_minus_intersect(p)) {
+            palette.halve_size();
+        } else {
+            let rel_p = palette.get_handle_point(p);
+            palette.grip = make_palette_grip(rel_p[0]);
+        }
     } else {
         for (let item of poly_items) {
             if (item.point_intersects(p)) {
