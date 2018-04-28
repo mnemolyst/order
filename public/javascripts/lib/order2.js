@@ -35,6 +35,8 @@ let palette = {
         this.clipping_plane.clip_right = -canvas.width * 0.5 + this.width;
         this.clipping_plane.clip_bottom = -canvas.height * 0.5;
         this.clipping_plane.clip_top = canvas.height * 0.5;
+
+        main_clipping_plane.clip_left = this.clipping_plane.clip_right;
     },
 
     render() {
@@ -123,7 +125,9 @@ let state = 'none';
 let px = 0, py = 0;
 
 function make_poly_item(point_generator, x, y, num_sides, side_length) {
-    let p = point_generator(x, y, num_sides, side_length);
+
+    // INIT
+    let p = point_generator(x, y, side_length);
 
     let p_idx = [];
     for (let i = 0; i < p.length; i += 2) {
@@ -138,7 +142,6 @@ function make_poly_item(point_generator, x, y, num_sides, side_length) {
     let edge_vec_idx = [];
     let normal_depths = [];
 
-    // INIT
     for (let i = 0; i < p_2d_idx.length; i++) {
         let si = (i + 1 < p_2d_idx.length) ? i + 1 : 0; // successor of i
 
@@ -192,7 +195,7 @@ function make_poly_item(point_generator, x, y, num_sides, side_length) {
         side_length,
         interacting: true,
         clipping_plane: null,
-        hall_pass: null,
+        portal_pass: null,
         color: rgba_to_hex(...color_map[num_sides]),
         fill_color: rgba_to_hex(...desaturate(...color_map[num_sides])),
 
@@ -439,33 +442,35 @@ function make_poly_item(point_generator, x, y, num_sides, side_length) {
             let avg_y = this.p_idx.reduce((prev, curr) => prev + points[curr * 2 + 1], 0) / this.p_idx.length;
             let new_item = make_poly_item(this.point_generator, avg_x, avg_y, this.p_idx.length, this.side_length);
             new_item.nudge_color();
-            new_item.clipping_plane = this.clipping_plane;
             poly_items.push(new_item);
-            this.clipping_plane.add_poly_item(new_item);
-            this.hall_pass = make_hall_pass(this.clipping_plane, 'clip_right', main_clipping_plane);
+            this.clipping_plane.add_to_deport(new_item);
 
             return new_item;
-        }
+        },
+
+        on_click: null
     };
 }
 
-function make_clipping_plane(clip_left, clip_right, clip_bottom, clip_top, hall_passes) {
+function make_clipping_plane(clip_left, clip_right, clip_bottom, clip_top) {
     return {
         p_2d_idx: [],
+        to_deport: [],
         clip_left,
         clip_right,
         clip_bottom,
         clip_top,
-        hall_passes,
 
-        add_poly_item(poly_item) {
-            for (let idx of poly_item.p_idx) {
-                this.add_p_idx(idx);
-            }
+        add_to_deport(poly_item) {
+            this.to_deport.push(poly_item.p_2d_idx);
         },
 
-        add_p_idx(...idx) {
-            for (let i of idx) {
+        add_poly_item(poly_item) {
+            this.p_2d_idx.push(...poly_item.p_2d_idx);
+        },
+
+        add_p_idx(p_idx) {
+            for (let i of p_idx) {
                 this.p_2d_idx.push(i * 2);
             }
         },
@@ -475,7 +480,6 @@ function make_clipping_plane(clip_left, clip_right, clip_bottom, clip_top, hall_
                 if (points[idx] < this.clip_left) {
                     points[idx] = this.clip_left + Math.random() - 0.5;
                 }
-                // TODO somehow make a portal in the right clip plane for transfer to main clipping plane
                 if (points[idx] > this.clip_right) {
                     points[idx] = this.clip_right + Math.random() - 0.5;
                 }
@@ -486,20 +490,33 @@ function make_clipping_plane(clip_left, clip_right, clip_bottom, clip_top, hall_
                     points[idx + 1] = this.clip_top + Math.random() - 0.5;
                 }
             }
+
+            let to_delete = [];
+            for (let i in this.to_deport) {
+                let all_out = true;
+                for (let idx of this.to_deport[i]) {
+                    if (points[idx] < this.clip_left) {
+                        points[idx] = this.clip_left + Math.random() - 0.5;
+                    }
+                    if (points[idx] < this.clip_right) {
+                        all_out = false;
+                    }
+                    if (points[idx + 1] < this.clip_bottom) {
+                        points[idx + 1] = this.clip_bottom + Math.random() - 0.5;
+                    }
+                    if (points[idx + 1] > this.clip_top) {
+                        points[idx + 1] = this.clip_top + Math.random() - 0.5;
+                    }
+                }
+                if (all_out) {
+                    main_clipping_plane.p_2d_idx.push(...this.to_deport[i]);
+                    to_delete.push(i);
+                }
+            }
+            for (let i of to_delete) {
+                delete this.to_deport[i];
+            }
         },
-
-        check_hall_passes() {
-            
-        }
-    };
-}
-
-// TODO instead make portal passes consisting of p_idx and assign to clipping planes
-function make_hall_pass(src, side, dest) {
-    return {
-        src,
-        side,
-        dest
     };
 }
 
@@ -749,6 +766,22 @@ function add_point(x, y) {
     return num_points++;
 }
 
+function make_regular_poly_generator(x, y, n, l = 20) {
+
+    return (x, y, l) => {
+        let t = 2 * Math.PI / n
+        let sl = Math.sin(t / 2);
+        let r = l / sl;
+
+        let p = [];
+        for (let i = 0; i < n; i++) {
+            p[2 * i] = x + r * Math.cos(t / 2 + i * t);
+            p[2 * i + 1] = y + r * Math.sin(t / 2 + i * t);
+        }
+
+        return p;
+    };
+}
 function make_regular_poly_coords(x, y, n, l = 20) {
     let t = 2 * Math.PI / n
     let sl = Math.sin(t / 2);
@@ -763,33 +796,32 @@ function make_regular_poly_coords(x, y, n, l = 20) {
     return p;
 }
 
-function add_regular_poly(x, y, n, clipping_plane = main_clipping_plane, pure_color = false) {
+function add_regular_poly(x, y, n, clipping_plane = main_clipping_plane) {
 
-    let poly_item = make_poly_item(make_regular_poly_coords, x, y, n, 20);
+    let point_generator = make_regular_poly_generator(x, y, n, 20);
+    let poly_item = make_poly_item(point_generator, x, y, n, 20);
 
-    poly_item.clipping_plane = clipping_plane;
-
-    if (! pure_color) {
-        poly_item.nudge_color();
-    }
-
+    poly_item.nudge_color();
     poly_items.push(poly_item);
 
     clipping_plane.add_poly_item(poly_item);
 }
 
 function add_rhomb_a(x, y, clipping_plane = main_clipping_plane) {
-    let l = 100;
-    let p1 = add_point(x + l * Math.cos(Math.PI / 10), y);
-    let p2 = add_point(x, y + l * Math.sin(Math.PI / 10));
-    let p3 = add_point(x - l * Math.cos(Math.PI / 10), y);
-    let p4 = add_point(x, y - l * Math.sin(Math.PI / 10));
 
-    clipping_plane.add_p_idx(p1, p2, p3, p4);
+    let point_generator = (x, y, l) => {
+        return [
+            x + l * Math.cos(Math.PI / 10), y,
+            x, y + l * Math.sin(Math.PI / 10),
+            x - l * Math.cos(Math.PI / 10), y,
+            x, y - l * Math.sin(Math.PI / 10)
+        ];
+    };
 
-    let poly_item = make_poly_item([p1, p2, p3, p4]);
-    poly_item.clipping_plane = clipping_plane;
+    let poly_item = make_poly_item(point_generator, x, y, 4, 20);
     poly_items.push(poly_item);
+
+    clipping_plane.add_poly_item(poly_item);
 }
 
 function add_rhomb_b(x, y, clipping_plane = main_clipping_plane) {
@@ -802,7 +834,6 @@ function add_rhomb_b(x, y, clipping_plane = main_clipping_plane) {
     clipping_plane.add_p_idx(p1, p2, p3, p4);
 
     let poly_item = make_poly_item([p1, p2, p3, p4]);
-    poly_item.clipping_plane = clipping_plane;
     poly_items.push(poly_item);
 }
 
@@ -991,10 +1022,8 @@ function point_start(p) {
     } else {
         for (let item of poly_items) {
             if (item.point_intersects(p)) {
-                if (item.clipping_plane === palette.clipping_plane) {
-                    let new_item = item.clone();
-                    new_item.interacting = false;
-                    drag_item = make_drag_item(p[0], p[1], new_item);
+                if (typeof item.on_click === 'function') {
+                    item.on_click(p);
                     break;
                 } else {
                     //item.interacting = false;
@@ -1081,8 +1110,21 @@ window.dispatchEvent(event);
 let x = (palette.clipping_plane.clip_left + palette.clipping_plane.clip_right) * 0.5;
 let y = (palette.clipping_plane.clip_bottom + palette.clipping_plane.clip_top) * 0.5;
 for (let n of [3, 4, 5, 6, 7, 8, 9, 10]) {
-    add_regular_poly(x, y, n, palette.clipping_plane, true);
+
+    let point_generator = make_regular_poly_generator(x, y, n, 20);
+    let poly_item = make_poly_item(point_generator, x, y, n, 20);
+
+    poly_item.on_click = (p) => {
+        let new_item = poly_item.clone();
+        new_item.interacting = false;
+        drag_item = make_drag_item(p[0], p[1], new_item);
+    }
+
+    poly_item.clipping_plane = palette.clipping_plane;
+    poly_items.push(poly_item);
+
+    palette.clipping_plane.add_poly_item(poly_item);
 }
 
-//add_rhomb_a(palette.clipping_plane);
+//add_rhomb_a(x, y, palette.clipping_plane);
 //add_rhomb_b(palette.clipping_plane);
