@@ -12,6 +12,7 @@ let points_transformed = [];
 let poly_items = [];
 let drag_item = null;
 let delete_drag = false;
+let touching = null;
 
 let palette = {
     width: -3,
@@ -1052,36 +1053,42 @@ function point_move(p) {
 function point_end() {
     palette.grip = null;
     delete_drag = true;
+    touching = null;
 }
 
-if (is_touch_device()) {
-
-    canvas.addEventListener('touchstart', function(event) {
+canvas.addEventListener('touchstart', function(event) {
+    if (touching === null) {
         let point = transform_point([event.touches[0].clientX, event.touches[0].clientY]);
+        touching = true;
         point_start(point);
-    });
+    }
+});
 
-    canvas.addEventListener('touchmove', function(event) {
+canvas.addEventListener('touchmove', function(event) {
+    if (touching === true) {
         let point = transform_point([event.touches[0].clientX, event.touches[0].clientY]);
         point_move(point);
-    });
+    }
+});
 
-    canvas.addEventListener('touchend', point_end);
+canvas.addEventListener('touchend', point_end);
 
-} else {
-
-    canvas.addEventListener('mousedown', function(event) {
+canvas.addEventListener('mousedown', function(event) {
+    if (touching === null) {
         let point = transform_point([event.clientX, event.clientY]);
+        touching = false;
         point_start(point);
-    });
+    }
+});
 
-    canvas.addEventListener('mousemove', function(event) {
+canvas.addEventListener('mousemove', function(event) {
+    if (touching === false) {
         let point = transform_point([event.clientX, event.clientY]);
         point_move(point);
-    });
+    }
+});
 
-    canvas.addEventListener('mouseup', point_end);
-}
+canvas.addEventListener('mouseup', point_end);
 
 setInterval(function () {
     tic();
